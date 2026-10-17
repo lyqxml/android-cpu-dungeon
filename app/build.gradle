@@ -1,0 +1,68 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.lyq.cpudungeon'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.lyq.cpudungeon"
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName "1.0.0"
+    }
+
+    // CI 注入正式签名；本地无环境变量时自动回退 debug 签名，保证始终能装。
+    def hasReleaseKey = System.getenv("KEYSTORE_PATH") != null \
+            && new File(System.getenv("KEYSTORE_PATH") ?: "").exists()
+
+    signingConfigs {
+        release {
+            if (hasReleaseKey) {
+                storeFile file(System.getenv("KEYSTORE_PATH"))
+                storePassword System.getenv("STORE_PASSWORD")
+                keyAlias System.getenv("KEY_ALIAS")
+                keyPassword System.getenv("KEY_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            minifyEnabled false
+        }
+        release {
+            // 纯 Java + 无依赖，R8 只做瘦身；APK 目标 < 1MB
+            minifyEnabled true
+            shrinkResources true
+            signingConfig hasReleaseKey ? signingConfigs.release : signingConfigs.debug
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    buildFeatures {
+        buildConfig false
+    }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+
+    packagingOptions {
+        resources {
+            excludes += ['META-INF/*']
+        }
+    }
+}
+
+dependencies {
+    // 零依赖：无 AndroidX、无 Kotlin、无游戏引擎。
+}
