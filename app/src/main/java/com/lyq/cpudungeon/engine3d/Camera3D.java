@@ -10,6 +10,7 @@ public final class Camera3D {
     public float yaw;
     public float pitch;
     public float focal;
+    public float fovTan = HORIZONTAL_TAN;
 
     public float fx;
     public float fy;
@@ -20,6 +21,10 @@ public final class Camera3D {
     public float ux;
     public float uy;
     public float uz;
+
+    public void setFovDegrees(float degrees) {
+        fovTan = (float) Math.tan(Math.toRadians(degrees) * 0.5);
+    }
 
     public void update(int viewWidth) {
         float cp = (float) Math.cos(pitch);
@@ -42,6 +47,6 @@ public final class Camera3D {
         uy = fz * rx - fx * rz;
         uz = fx * ry - fy * rx;
 
-        focal = (viewWidth * 0.5f) / HORIZONTAL_TAN;
+        focal = (viewWidth * 0.5f) / Math.max(0.2f, fovTan);
     }
 }

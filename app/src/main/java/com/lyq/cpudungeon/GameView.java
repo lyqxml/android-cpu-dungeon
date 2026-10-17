@@ -14,6 +14,7 @@ import android.view.SurfaceView;
 
 import com.lyq.cpudungeon.engine3d.Camera3D;
 import com.lyq.cpudungeon.engine3d.Game3D;
+import com.lyq.cpudungeon.engine3d.PostFx;
 import com.lyq.cpudungeon.engine3d.Renderer3D;
 import com.lyq.cpudungeon.engine3d.UiEvent;
 import com.lyq.cpudungeon.ui.Hud;
@@ -23,12 +24,14 @@ import com.lyq.cpudungeon.ui.Hud;
  * framebuffer, then the HUD is drawn with the software canvas on top.
  */
 public final class GameView extends SurfaceView implements SurfaceHolder.Callback, Runnable {
-    private static final int FIXED_HEIGHT = 720;
+    private static final int MIN_AUTO_HEIGHT = 360;
+    private static final int MAX_AUTO_HEIGHT = 1440;
     private static final long FRAME_NS = 16_666_667L;
 
     private final SurfaceHolder holder;
     private final Game3D game = new Game3D(0xC0D0C0FFEEL);
     private final Renderer3D renderer = new Renderer3D();
+    private final PostFx postFx = new PostFx();
     private final Camera3D camera = new Camera3D();
     private final Hud hud = new Hud();
     private final Paint blit = new Paint();
@@ -54,6 +57,9 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
     private float fps = 60f;
     private float fpsTimer;
     private int fpsFrames;
+    private int adaptiveHeight = 720;
+    private float sceneMs = 16f;
+    private long lastAdaptNs;
     private int best;
     private int lastShotSeq;
     private float joyTargetX;
@@ -194,6 +200,8 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
                 fpsFrames = 0;
                 fpsTimer = 0f;
             }
+            maybeAdaptive(System.nanoTime());
+
             long busy = System.nanoTime() - frameStart;
             long sleep = FRAME_NS - busy;
             if (sleep > 1_000_000L) {
@@ -222,8 +230,13 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
             updateCamera(w);
             renderer.renderAll(game.mesh, game.enemyMesh, game.billboards,
                     game.billboardCount, camera, fb, w, h, game.time);
+            if (settings.antiAlias) {
+                postFx.antiAlias(fb, w, h);
+            }
             bmp.setPixels(fb, 0, w, 0, 0, w, h);
         }
+        long renderEnd = System.nanoTime();
+        sceneMs = sceneMs * 0.9f + (renderEnd - renderStart) / 1_000_000f * 0.1f;
 
         Canvas canvas = null;
         try {
@@ -245,6 +258,45 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
         }
     }
 
+    private void maybeAdaptive(long nowNs) {
+        if (settings.resolutionMode != Settings.RES_AUTO || uiMode != Hud.MODE_PLAY) {
+            return;
+        }
+        if (nowNs - lastAdaptNs < 1_200_000_000L) {
+            return;
+        }
+        int next = adaptiveHeight;
+        if (sceneMs > 24f && next > MIN_AUTO_HEIGHT) {
+            next -= 120;
+        } else if (sceneMs < 12f && next < MAX_AUTO_HEIGHT) {
+            next += 120;
+        }
+        next = Math.max(MIN_AUTO_HEIGHT, Math.min(MAX_AUTO_HEIGHT, next));
+        if (next != adaptiveHeight) {
+            adaptiveHeight = next;
+            lastAdaptNs = nowNs;
+            post(new Runnable() {
+                @Override
+                public void run() {
+                    synchronized (GameView.this) {
+                        allocateFramebuffer();
+                    }
+                }
+            });
+        }
+    }
+
+    private void applyResolutionSetting() {
+        if (settings.resolutionMode == Settings.RES_AUTO) {
+            adaptiveHeight = 720;
+        }
+        sceneMs = 16f;
+        lastAdaptNs = System.nanoTime();
+        synchronized (this) {
+            allocateFramebuffer();
+        }
+    }
+
     private void updateCamera(int w) {
         float bob = (float) Math.sin(game.player.bob) * 0.045f * game.player.moveSpeed
                 - game.player.landDip * 0.12f;
@@ -253,6 +305,7 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
         camera.z = game.player.z + game.player.eyeHeight + bob;
         camera.yaw = game.player.yaw;
         camera.pitch = game.player.pitch + game.player.recoil * 0.012f;
+        camera.setFovDegrees(settings.fovDegrees);
         float shake = game.shake;
         if (shake > 0.001f) {
             camera.x += (float) Math.sin(game.time * 93f) * 0.035f * shake;
@@ -329,7 +382,11 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
             viewW = getWidth();
             viewH = getHeight();
         }
-        int h = FIXED_HEIGHT;
+        int h = settings.fixedHeight();
+        if (h == 0) {
+            h = adaptiveHeight;
+        }
+        h = Math.max(MIN_AUTO_HEIGHT, Math.min(MAX_AUTO_HEIGHT, h));
         int w = viewW > 0 && viewH > 0 ? Math.round(h * (viewW / (float) viewH)) : 1280;
         if ((w & 1) == 1) {
             w++;
@@ -406,6 +463,16 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
         } else if (hud.sensPlus.contains(x, y)) {
             settings.nudgeSensitivity(0.1f);
             hud.layout(viewW, viewH, density);
+        } else if (hud.fovMinus.contains(x, y)) {
+            settings.nudgeFov(-2f);
+        } else if (hud.fovPlus.contains(x, y)) {
+            settings.nudgeFov(2f);
+        } else if (hud.resBtn.contains(x, y)) {
+            settings.cycleResolution();
+            applyResolutionSetting();
+            hud.layout(viewW, viewH, density);
+        } else if (hud.aaBtn.contains(x, y)) {
+            settings.toggleAntiAlias();
         } else if (hud.layoutBtn.contains(x, y)) {
             uiMode = Hud.MODE_LAYOUT;
             dragPointer = -1;

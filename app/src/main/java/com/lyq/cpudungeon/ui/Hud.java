@@ -48,6 +48,10 @@ public final class Hud {
     public final RectF sensMinus = new RectF();
     public final RectF sensPlus = new RectF();
     public final RectF layoutBtn = new RectF();
+    public final RectF resBtn = new RectF();
+    public final RectF aaBtn = new RectF();
+    public final RectF fovMinus = new RectF();
+    public final RectF fovPlus = new RectF();
     public final RectF closeBtn = new RectF();
     public final RectF doneBtn = new RectF();
     public final RectF resetBtn = new RectF();
@@ -125,23 +129,34 @@ public final class Hud {
 
         settingsRect.set(20f * d, 96f * d, 82f * d, 124f * d);
 
-        float pw = Math.min(w * 0.72f, 640f * d);
-        float ph = Math.min(h * 0.74f, 300f * d);
+        float pw = Math.min(w * 0.76f, 680f * d);
+        float ph = Math.min(h * 0.90f, 400f * d);
         float left = w * 0.5f - pw * 0.5f;
         float top = h * 0.5f - ph * 0.5f;
         panel.set(left, top, left + pw, top + ph);
 
-        float sensY = top + ph * 0.30f;
+        float sensY = top + ph * 0.19f;
         float minusCx = left + pw - 158f * d;
         float plusCx = left + pw - 44f * d;
         sensMinus.set(minusCx - 22f * d, sensY - 22f * d, minusCx + 22f * d, sensY + 22f * d);
         sensPlus.set(plusCx - 22f * d, sensY - 22f * d, plusCx + 22f * d, sensY + 22f * d);
 
-        float layoutY = top + ph * 0.48f;
+        float fovY = top + ph * 0.335f;
+        fovMinus.set(minusCx - 22f * d, fovY - 22f * d, minusCx + 22f * d, fovY + 22f * d);
+        fovPlus.set(plusCx - 22f * d, fovY - 22f * d, plusCx + 22f * d, fovY + 22f * d);
+
+        float resY = top + ph * 0.48f;
+        resBtn.set(left + pw - 232f * d, resY - 20f * d,
+                left + pw - 24f * d, resY + 20f * d);
+        float aaY = top + ph * 0.60f;
+        aaBtn.set(left + pw - 150f * d, aaY - 20f * d,
+                left + pw - 24f * d, aaY + 20f * d);
+
+        float layoutY = top + ph * 0.72f;
         layoutBtn.set(w * 0.5f - 110f * d, layoutY - 20f * d,
                 w * 0.5f + 110f * d, layoutY + 20f * d);
 
-        float bottomY = top + ph - ph * 0.12f;
+        float bottomY = top + ph * 0.92f;
         closeBtn.set(w * 0.5f - 76f * d, bottomY - 18f * d,
                 w * 0.5f + 76f * d, bottomY + 18f * d);
         resetBtn.set(left + 24f * d, bottomY - 18f * d,
@@ -364,7 +379,9 @@ public final class Hud {
         label(c, "SECTOR " + two(g.levelIndex), screenW * 0.5f, 30f * d, 15f * d, TEXT, Paint.Align.CENTER);
         label(c, "SCORE " + g.score + "    BEST " + Math.max(best, g.score), screenW * 0.5f,
                 50f * d, 10f * d, DIM, Paint.Align.CENTER);
-        label(c, "CPU " + fbW + "x" + fbH + "  " + Math.round(fps) + " FPS  [720p FIXED]",
+        String mode = settings != null ? settings.resolutionLabel() : "720p";
+        String aa = settings != null && settings.antiAlias ? "AA" : "NOAA";
+        label(c, "CPU " + fbW + "x" + fbH + "  " + Math.round(fps) + " FPS  [" + mode + " · " + aa + "]",
                 screenW * 0.5f, 66f * d, 9f * d, 0x9925E0C8, Paint.Align.CENTER);
         if (g.cheat) {
             float pulse = 0.6f + 0.4f * (float) Math.abs(Math.sin(g.time * 6f));
@@ -656,19 +673,48 @@ public final class Hud {
         stroke.setColor(0x8825E0C8);
         c.drawRoundRect(panel, 10f * d, 10f * d, stroke);
 
-        label(c, "SETTINGS", panel.centerX(), panel.top + panel.height() * 0.13f,
-                18f * d, TEXT, Paint.Align.CENTER);
-        label(c, "LOOK SENSITIVITY", panel.left + 28f * d, panel.top + panel.height() * 0.30f + 5f * d,
-                10f * d, DIM, Paint.Align.LEFT);
+        float top = panel.top;
+        float ph = panel.height();
+        float left = panel.left;
 
+        label(c, "SETTINGS", panel.centerX(), top + ph * 0.07f, 18f * d, TEXT, Paint.Align.CENTER);
+
+        float sensY = top + ph * 0.19f;
+        label(c, "LOOK SENSITIVITY", left + 28f * d, sensY + 5f * d, 10f * d, DIM, Paint.Align.LEFT);
         float sens = settings != null ? settings.lookSensitivity : Settings.DEFAULT_SENSITIVITY;
         int tenths = Math.round(sens * 10f);
         label(c, (tenths / 10) + "." + (tenths % 10) + "x",
-                panel.left + panel.width() * 0.5f + 52f * d,
-                panel.top + panel.height() * 0.30f + 6f * d, 15f * d, TEAL, Paint.Align.CENTER);
-
+                panel.centerX() + 52f * d, sensY + 6f * d, 15f * d, TEAL, Paint.Align.CENTER);
         drawRoundButton(c, sensMinus, "-");
         drawRoundButton(c, sensPlus, "+");
+
+        float fovY = top + ph * 0.335f;
+        label(c, "FIELD OF VIEW", left + 28f * d, fovY + 5f * d, 10f * d, DIM, Paint.Align.LEFT);
+        float fov = settings != null ? settings.fovDegrees : Settings.DEFAULT_FOV;
+        label(c, Math.round(fov) + "\u00b0", panel.centerX() + 52f * d, fovY + 6f * d,
+                15f * d, TEAL, Paint.Align.CENTER);
+        drawRoundButton(c, fovMinus, "-");
+        drawRoundButton(c, fovPlus, "+");
+
+        float resY = top + ph * 0.48f;
+        label(c, "RESOLUTION", left + 28f * d, resY + 5f * d, 10f * d, DIM, Paint.Align.LEFT);
+        fill.setColor(0x3325E0C8);
+        c.drawRoundRect(resBtn, 7f * d, 7f * d, fill);
+        stroke.setColor(0xAA25E0C8);
+        c.drawRoundRect(resBtn, 7f * d, 7f * d, stroke);
+        String resLabel = settings != null ? settings.resolutionLabel() : "720p";
+        label(c, resLabel + "  >", resBtn.centerX(), resBtn.centerY() + 4f * d,
+                10f * d, TEXT, Paint.Align.CENTER);
+
+        float aaY = top + ph * 0.60f;
+        label(c, "ANTI-ALIAS (FXAA)", left + 28f * d, aaY + 5f * d, 10f * d, DIM, Paint.Align.LEFT);
+        boolean aa = settings != null && settings.antiAlias;
+        fill.setColor(aa ? 0x4425E0C8 : 0x33101828);
+        c.drawRoundRect(aaBtn, 7f * d, 7f * d, fill);
+        stroke.setColor(aa ? 0xCC25E0C8 : 0x55345060);
+        c.drawRoundRect(aaBtn, 7f * d, 7f * d, stroke);
+        label(c, aa ? "ON" : "OFF", aaBtn.centerX(), aaBtn.centerY() + 4f * d,
+                11f * d, aa ? TEAL : DIM, Paint.Align.CENTER);
 
         fill.setColor(0x3325E0C8);
         c.drawRoundRect(layoutBtn, 8f * d, 8f * d, fill);
@@ -683,9 +729,6 @@ public final class Hud {
         c.drawRoundRect(closeBtn, 8f * d, 8f * d, stroke);
         label(c, "CLOSE", closeBtn.centerX(), closeBtn.centerY() + 4f * d,
                 10f * d, TEXT, Paint.Align.CENTER);
-
-        label(c, "拖动自定义键位 · 灵敏度立即生效", panel.centerX(),
-                panel.bottom - 8f * d, 8f * d, 0x6625E0C8, Paint.Align.CENTER);
     }
 
     private void drawLayoutMode(Canvas c) {
