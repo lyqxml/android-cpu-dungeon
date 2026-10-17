@@ -49,18 +49,22 @@ public final class PostFx {
                 if (max - min < threshold) {
                     continue;
                 }
-                int a = temp[i - 1];
-                int b = temp[i + 1];
-                int d = temp[i - w];
-                int e = temp[i + w];
-                int p1 = ((a & 0xFEFEFE) + (b & 0xFEFEFE)) >> 1;
-                int p2 = ((d & 0xFEFEFE) + (e & 0xFEFEFE)) >> 1;
-                int avg = ((p1 & 0xFEFEFE) + (p2 & 0xFEFEFE)) >> 1;
+                int sumR = ((temp[i - 1] >> 16) & 255) + ((temp[i + 1] >> 16) & 255)
+                        + ((temp[i - w] >> 16) & 255) + ((temp[i + w] >> 16) & 255)
+                        + ((temp[i - w - 1] >> 16) & 255) + ((temp[i - w + 1] >> 16) & 255)
+                        + ((temp[i + w - 1] >> 16) & 255) + ((temp[i + w + 1] >> 16) & 255);
+                int sumG = ((temp[i - 1] >> 8) & 255) + ((temp[i + 1] >> 8) & 255)
+                        + ((temp[i - w] >> 8) & 255) + ((temp[i + w] >> 8) & 255)
+                        + ((temp[i - w - 1] >> 8) & 255) + ((temp[i - w + 1] >> 8) & 255)
+                        + ((temp[i + w - 1] >> 8) & 255) + ((temp[i + w + 1] >> 8) & 255);
+                int sumB = (temp[i - 1] & 255) + (temp[i + 1] & 255)
+                        + (temp[i - w] & 255) + (temp[i + w] & 255)
+                        + (temp[i - w - 1] & 255) + (temp[i - w + 1] & 255)
+                        + (temp[i + w - 1] & 255) + (temp[i + w + 1] & 255);
                 int c = temp[i];
-                // stronger edge blend so the effect survives the final upscale
-                int r = (((c >> 16) & 255) * 2 + ((avg >> 16) & 255) * 3) / 5;
-                int g = (((c >> 8) & 255) * 2 + ((avg >> 8) & 255) * 3) / 5;
-                int bl = ((c & 255) * 2 + (avg & 255) * 3) / 5;
+                int r = ((((c >> 16) & 255) * 30 + (sumR / 8) * 70) / 100);
+                int g = ((((c >> 8) & 255) * 30 + (sumG / 8) * 70) / 100);
+                int bl = (((c & 255) * 30 + (sumB / 8) * 70) / 100);
                 fb[i] = 0xFF000000 | (r << 16) | (g << 8) | bl;
             }
         }

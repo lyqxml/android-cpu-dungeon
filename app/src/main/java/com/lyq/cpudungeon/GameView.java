@@ -164,8 +164,9 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
             if (lastNs == 0L) {
                 lastNs = frameStart;
             }
-            float dt = (frameStart - lastNs) / 1_000_000_000f;
+            float rawDt = (frameStart - lastNs) / 1_000_000_000f;
             lastNs = frameStart;
+            float dt = rawDt;
             if (dt > 0.1f) {
                 dt = 0.1f;
             }
@@ -194,15 +195,16 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
             }
 
             fpsFrames++;
-            fpsTimer += dt;
+            // use real elapsed time so sub-10 fps readings stay truthful
+            fpsTimer += Math.max(0f, rawDt);
             if (fpsTimer >= 0.5f) {
                 fps = fpsFrames / fpsTimer;
                 fpsFrames = 0;
                 fpsTimer = 0f;
             }
+            long busy = System.nanoTime() - frameStart;
             maybeAdaptive(System.nanoTime());
 
-            long busy = System.nanoTime() - frameStart;
             long sleep = FRAME_NS - busy;
             if (sleep > 1_000_000L) {
                 try {
@@ -235,8 +237,7 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
             }
             bmp.setPixels(fb, 0, w, 0, 0, w, h);
         }
-        long renderEnd = System.nanoTime();
-        sceneMs = sceneMs * 0.9f + (renderEnd - renderStart) / 1_000_000f * 0.1f;
+        sceneMs = sceneMs * 0.9f + (System.nanoTime() - renderStart) / 1_000_000f * 0.1f;
 
         Canvas canvas = null;
         try {
@@ -268,8 +269,8 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
             return;
         }
         int next = adaptiveHeight;
-        if (fps < 56f) {
-            // converge on 60 fps: aggressive first, then fine steps
+        if (fps < 57f) {
+            // actual presented FPS: converge toward 60 without overreacting to vsync wait
             if (fps < 30f) {
                 next = Math.max(MIN_AUTO_HEIGHT, next / 2);
             } else if (fps < 45f) {
@@ -280,7 +281,6 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
         } else if (fps > 58.5f && sceneMs < 13f && next < MAX_AUTO_HEIGHT) {
             next += 60;
         }
-        next = Math.max(MIN_AUTO_HEIGHT, Math.min(MAX_AUTO_HEIGHT, next));
         if (next != adaptiveHeight) {
             adaptiveHeight = next;
             lastAdaptNs = nowNs;
@@ -480,8 +480,10 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
             settings.cycleResolution();
             applyResolutionSetting();
             hud.layout(viewW, viewH, density);
+            hud.addPopup(settings.resolutionLabel(), 0xFF7CE7FF);
         } else if (hud.aaBtn.contains(x, y)) {
             settings.toggleAntiAlias();
+            hud.addPopup(settings.antiAlias ? "AA ON" : "AA OFF", 0xFF25E0C8);
         } else if (hud.layoutBtn.contains(x, y)) {
             uiMode = Hud.MODE_LAYOUT;
             dragPointer = -1;

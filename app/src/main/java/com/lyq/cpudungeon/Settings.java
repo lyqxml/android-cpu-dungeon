@@ -9,6 +9,7 @@ public final class Settings {
     public static final int RES_1080 = 1;
     public static final int RES_1440 = 2;
     public static final int RES_AUTO = 3;
+    public static final int RES_480 = 4;
     public static final int RES_360 = 4;
     public static final int RES_540 = 5;
 
