@@ -227,9 +227,9 @@ public final class Textures {
                 // magenta hazard chevrons
                 int d = (x + y) % 24;
                 if (d < 4 && (x > 8 && x < 56)) {
-                    r = 120 + (d * 12);
-                    g = 24;
-                    b = 70 + (d * 8);
+                    r = 86 + (d * 9);
+                    g = 20;
+                    b = 54 + (d * 6);
                 }
                 if ((y & 31) == 16 && x > 12 && x < 52) {
                     r = 60;

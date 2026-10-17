@@ -3,6 +3,8 @@ package com.lyq.cpudungeon.engine;
 public final class Enemy {
     public float x;
     public float y;
+    /** Vertical centre of the billboard (drones hover). */
+    public float z;
     public int hp = 3;
     public float phase;
     public float hitFlash;

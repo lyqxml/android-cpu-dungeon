@@ -12,24 +12,24 @@ import android.view.MotionEvent;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 
-
-import com.lyq.cpudungeon.engine.Game;
-import com.lyq.cpudungeon.engine.Raycaster;
+import com.lyq.cpudungeon.engine3d.Camera3D;
+import com.lyq.cpudungeon.engine3d.Game3D;
+import com.lyq.cpudungeon.engine3d.Renderer3D;
 import com.lyq.cpudungeon.ui.Hud;
 
 /**
- * Owns the render thread. The 3D scene is rasterized on the CPU into an int[]
- * framebuffer, uploaded into a Bitmap and blitted with nearest-neighbour
- * scaling; the HUD is drawn with software Canvas on top.
+ * Render thread for the true-3D build: CPU rasterizes the scene into an int[]
+ * framebuffer, then the HUD is drawn with the software canvas on top.
  */
 public final class GameView extends SurfaceView implements SurfaceHolder.Callback, Runnable {
     private static final int MIN_WIDTH = 240;
-    private static final int MAX_WIDTH = 560;
+    private static final int MAX_WIDTH = 520;
     private static final long FRAME_NS = 16_666_667L;
 
     private final SurfaceHolder holder;
-    private final Game game = new Game(0xC0D0C0FFEEL);
-    private final Raycaster raycaster = new Raycaster();
+    private final Game3D game = new Game3D(0xC0D0C0FFEEL);
+    private final Renderer3D renderer = new Renderer3D();
+    private final Camera3D camera = new Camera3D();
     private final Hud hud = new Hud();
     private final Paint blit = new Paint();
     private final Rect dstRect = new Rect();
@@ -59,10 +59,16 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
 
     private int joyPointer = -1;
     private int firePointer = -1;
+    private int jumpPointer = -1;
+    private int crouchPointer = -1;
     private int lookPointer = -1;
     private float lookLastX;
+    private float lookLastY;
     private long lookDownNs;
     private float lookMoved;
+
+    private int cheatTaps;
+    private long cheatLastNs;
 
     private boolean keyW;
     private boolean keyA;
@@ -71,6 +77,7 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
     private boolean keyTurnL;
     private boolean keyTurnR;
     private boolean keyFire;
+    private boolean keyCrouch;
 
     public GameView(Context context) {
         super(context);
@@ -142,13 +149,12 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
             if (dt > 0.1f) {
                 dt = 0.1f;
             }
-            applyKeyboard(dt);
-            game.update(dt);
-            if (game.score > best) {
-                best = game.score;
-            }
-
             try {
+                applyKeyboard(dt);
+                game.update(dt);
+                if (game.score > best) {
+                    best = game.score;
+                }
                 renderFrame();
             } catch (Throwable t) {
                 CrashLog.write(getContext(), t);
@@ -188,7 +194,9 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
             w = fbW;
             h = fbH;
             bmp = bitmap;
-            raycaster.render(game, fb, w, h, game.time);
+            updateCamera(w);
+            renderer.render(game.mesh, camera, game.billboards, game.billboardCount,
+                    fb, w, h, game.time);
             bmp.setPixels(fb, 0, w, 0, 0, w, h);
         }
         long renderEnd = System.nanoTime();
@@ -214,14 +222,25 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
         }
     }
 
+    private void updateCamera(int w) {
+        float bob = (float) Math.sin(game.player.bob) * 0.045f * game.player.moveSpeed
+                - game.player.landDip * 0.12f;
+        camera.x = game.player.x;
+        camera.y = game.player.y;
+        camera.z = game.player.z + game.player.eyeHeight + bob;
+        camera.yaw = game.player.yaw;
+        camera.pitch = game.player.pitch + game.player.recoil * 0.012f;
+        camera.update(w);
+    }
+
     private void maybeAdjustResolution(long nowNs) {
         if (nowNs - lastAdjustNs < 1_200_000_000L) {
             return;
         }
         int next = targetWidth;
-        if (sceneMs > 11f && targetWidth > MIN_WIDTH) {
+        if (sceneMs > 12f && targetWidth > MIN_WIDTH) {
             next = targetWidth - 40;
-        } else if (sceneMs < 6.5f && targetWidth < MAX_WIDTH) {
+        } else if (sceneMs < 7f && targetWidth < MAX_WIDTH) {
             next = targetWidth + 40;
         }
         if (next != targetWidth) {
@@ -240,10 +259,8 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
 
     private void applyKeyboard(float dt) {
         if (keyW || keyA || keyS || keyD) {
-            float mx = (keyD ? 1f : 0f) - (keyA ? 1f : 0f);
-            float my = (keyW ? 1f : 0f) - (keyS ? 1f : 0f);
-            game.input.moveX = mx;
-            game.input.moveY = my;
+            game.input.moveX = (keyD ? 1f : 0f) - (keyA ? 1f : 0f);
+            game.input.moveY = (keyW ? 1f : 0f) - (keyS ? 1f : 0f);
         }
         float turn = ((keyTurnL ? 1f : 0f) - (keyTurnR ? 1f : 0f)) * 1.9f * dt;
         if (turn != 0f) {
@@ -325,12 +342,19 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
     private void releaseTouch() {
         joyPointer = -1;
         firePointer = -1;
+        jumpPointer = -1;
+        crouchPointer = -1;
         lookPointer = -1;
         game.input.moveX = 0f;
         game.input.moveY = 0f;
-        game.input.fireHeld = false;
+        game.input.fireHeld = keyFire;
+        game.input.crouch = keyCrouch;
         hud.knobX = 0f;
         hud.knobY = 0f;
+    }
+
+    private boolean inCircle(float x, float y, float cx, float cy, float r) {
+        return dist(x, y, cx, cy) < r;
     }
 
     @Override
@@ -343,18 +367,41 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
                 int id = e.getPointerId(idx);
                 float x = e.getX(idx);
                 float y = e.getY(idx);
-                if (game.state == Game.State.DEAD) {
+
+                // hidden easter egg: ten taps in the top-right corner
+                if (x > viewW - 64 * d && y < 64 * d) {
+                    long now = System.nanoTime();
+                    if (now - cheatLastNs > 4_000_000_000L) {
+                        cheatTaps = 0;
+                    }
+                    cheatLastNs = now;
+                    cheatTaps++;
+                    if (cheatTaps >= 10) {
+                        cheatTaps = 0;
+                        game.input.cheatTap = true;
+                    }
+                    return true;
+                }
+
+                if (game.state == Game3D.State.DEAD) {
                     game.input.restartTap = true;
                 }
-                if (dist(x, y, hud.joyCx, hud.joyCy) < hud.joyR * 1.55f && joyPointer < 0) {
+                if (inCircle(x, y, hud.joyCx, hud.joyCy, hud.joyR * 1.55f) && joyPointer < 0) {
                     joyPointer = id;
                     updateJoystick(x, y);
-                } else if (dist(x, y, hud.fireCx, hud.fireCy) < hud.fireR * 1.45f && firePointer < 0) {
+                } else if (inCircle(x, y, hud.fireCx, hud.fireCy, hud.fireR * 1.45f) && firePointer < 0) {
                     firePointer = id;
                     game.input.fireHeld = true;
+                } else if (inCircle(x, y, hud.jumpCx, hud.jumpCy, hud.jumpR * 1.5f) && jumpPointer < 0) {
+                    jumpPointer = id;
+                    game.input.jumpTap = true;
+                } else if (inCircle(x, y, hud.crouchCx, hud.crouchCy, hud.crouchR * 1.5f) && crouchPointer < 0) {
+                    crouchPointer = id;
+                    game.input.crouch = true;
                 } else if (lookPointer < 0) {
                     lookPointer = id;
                     lookLastX = x;
+                    lookLastY = y;
                     lookDownNs = System.nanoTime();
                     lookMoved = 0f;
                 }
@@ -367,10 +414,14 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
                         updateJoystick(e.getX(i), e.getY(i));
                     } else if (id == lookPointer) {
                         float x = e.getX(i);
+                        float y = e.getY(i);
                         float dx = x - lookLastX;
+                        float dy = y - lookLastY;
                         lookLastX = x;
-                        lookMoved += Math.abs(dx);
+                        lookLastY = y;
+                        lookMoved += Math.abs(dx) + Math.abs(dy);
                         game.input.look += dx * (3.0f / Math.max(1, viewW));
+                        game.input.pitch -= dy * (3.2f / Math.max(1, viewH));
                     }
                 }
                 break;
@@ -388,10 +439,15 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
                 } else if (id == firePointer) {
                     firePointer = -1;
                     game.input.fireHeld = keyFire;
+                } else if (id == jumpPointer) {
+                    jumpPointer = -1;
+                } else if (id == crouchPointer) {
+                    crouchPointer = -1;
+                    game.input.crouch = keyCrouch;
                 } else if (id == lookPointer) {
                     long dur = (System.nanoTime() - lookDownNs) / 1_000_000L;
                     if (lookMoved < 20 * d && dur < 300) {
-                        if (game.state == Game.State.DEAD) {
+                        if (game.state == Game3D.State.DEAD) {
                             game.input.restartTap = true;
                         } else {
                             game.input.fireTap = true;
@@ -441,11 +497,21 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
                 keyTurnR = true;
                 return true;
             case KeyEvent.KEYCODE_SPACE:
-                if (game.state == Game.State.DEAD) {
+                if (game.state == Game3D.State.DEAD) {
                     game.input.restartTap = true;
                 }
+                game.input.jumpTap = true;
+                return true;
+            case KeyEvent.KEYCODE_F:
                 keyFire = true;
                 game.input.fireHeld = true;
+                return true;
+            case KeyEvent.KEYCODE_SHIFT_LEFT:
+            case KeyEvent.KEYCODE_SHIFT_RIGHT:
+            case KeyEvent.KEYCODE_CTRL_LEFT:
+            case KeyEvent.KEYCODE_CTRL_RIGHT:
+                keyCrouch = true;
+                game.input.crouch = true;
                 return true;
             default:
                 return super.onKeyDown(keyCode, event);
@@ -477,10 +543,19 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
             case KeyEvent.KEYCODE_DPAD_RIGHT:
                 keyTurnR = false;
                 break;
-            case KeyEvent.KEYCODE_SPACE:
+            case KeyEvent.KEYCODE_F:
                 keyFire = false;
                 if (firePointer < 0) {
                     game.input.fireHeld = false;
+                }
+                break;
+            case KeyEvent.KEYCODE_SHIFT_LEFT:
+            case KeyEvent.KEYCODE_SHIFT_RIGHT:
+            case KeyEvent.KEYCODE_CTRL_LEFT:
+            case KeyEvent.KEYCODE_CTRL_RIGHT:
+                keyCrouch = false;
+                if (crouchPointer < 0) {
+                    game.input.crouch = false;
                 }
                 break;
             default:

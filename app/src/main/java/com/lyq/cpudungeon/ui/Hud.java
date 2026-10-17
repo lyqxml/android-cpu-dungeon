@@ -8,14 +8,13 @@ import android.graphics.RectF;
 import android.graphics.Typeface;
 
 import com.lyq.cpudungeon.engine.Enemy;
-import com.lyq.cpudungeon.engine.Game;
-import com.lyq.cpudungeon.engine.MapData;
 import com.lyq.cpudungeon.engine.Pickup;
+import com.lyq.cpudungeon.engine3d.Game3D;
+import com.lyq.cpudungeon.engine3d.Level3D;
 
 /**
- * All HUD elements are drawn with software Canvas primitives (no bitmaps except
- * a cached minimap of the static tile grid). Colors follow a neon-cyan /
- * magenta cyber palette to match the procedural textures.
+ * Software-canvas HUD: health, cores, minimap (height-shaded), crosshair,
+ * procedural blaster and touch controls including jump/crouch.
  */
 public final class Hud {
     private static final int TEAL = 0xFF25E0C8;
@@ -35,7 +34,7 @@ public final class Hud {
     private final RectF rect = new RectF();
 
     private Bitmap mapCache;
-    private MapData cacheMap;
+    private Level3D cacheLevel;
     private int cacheSize = -1;
     private int screenW = 1920;
     private int screenH = 1080;
@@ -47,6 +46,12 @@ public final class Hud {
     public float fireCx;
     public float fireCy;
     public float fireR;
+    public float jumpCx;
+    public float jumpCy;
+    public float jumpR;
+    public float crouchCx;
+    public float crouchCy;
+    public float crouchR;
     public float knobX;
     public float knobY;
 
@@ -62,25 +67,33 @@ public final class Hud {
         joyR = 62f * d;
         joyCx = 82f * d;
         joyCy = h - 82f * d;
-        fireR = 46f * d;
-        fireCx = w - 82f * d;
-        fireCy = h - 88f * d;
+        fireR = 44f * d;
+        fireCx = w - 80f * d;
+        fireCy = h - 86f * d;
+        jumpR = 32f * d;
+        jumpCx = w - 176f * d;
+        jumpCy = h - 78f * d;
+        crouchR = 29f * d;
+        crouchCx = w - 80f * d;
+        crouchCy = h - 176f * d;
     }
 
-    public void draw(Canvas c, Game g, float fps, int fbW, int fbH, int best) {
+    public void draw(Canvas c, Game3D g, float fps, int fbW, int fbH, int best) {
         drawDamageFlash(c, g);
         drawWeapon(c, g);
         drawStatus(c, g);
         drawPerf(c, g, fps, fbW, fbH, best);
         drawMinimap(c, g);
         drawJoystick(c, g);
+        drawJump(c, g);
+        drawCrouch(c, g);
         drawFireButton(c, g);
         drawCrosshair(c, g);
         drawMessages(c, g);
         drawOverlay(c, g, best);
     }
 
-    private void drawDamageFlash(Canvas c, Game g) {
+    private void drawDamageFlash(Canvas c, Game3D g) {
         if (g.player.damageFlash <= 0f) {
             return;
         }
@@ -90,7 +103,7 @@ public final class Hud {
         c.drawRect(0, 0, screenW, screenH, fill);
     }
 
-    private void drawWeapon(Canvas c, Game g) {
+    private void drawWeapon(Canvas c, Game3D g) {
         float bob = (float) Math.sin(g.player.bob) * 6f * d * g.player.moveSpeed;
         float recoil = g.player.recoil;
         float scale = Math.min(1.0f, screenH / (440f * d));
@@ -99,12 +112,10 @@ public final class Hud {
         c.translate(screenW * 0.5f + bob, screenH + 6f * d + recoil * 14f * d);
         c.scale(scale, scale);
 
-        // energy glow behind the cell
         fill.setStyle(Paint.Style.FILL);
         fill.setColor(0x2A25E0C8);
         c.drawCircle(0f, -96f * d, 44f * d, fill);
 
-        // side fins
         path.reset();
         path.moveTo(-46f * d, -6f * d);
         path.lineTo(-86f * d, -38f * d);
@@ -121,7 +132,6 @@ public final class Hud {
         path.close();
         c.drawPath(path, fill);
 
-        // main body
         path.reset();
         path.moveTo(-44f * d, 4f * d);
         path.lineTo(-38f * d, -72f * d);
@@ -139,7 +149,6 @@ public final class Hud {
         stroke.setColor(0xFF3A546C);
         c.drawPath(path, stroke);
 
-        // barrel
         rect.set(-13f * d, -176f * d, 13f * d, -140f * d);
         fill.setColor(0xFF0D151E);
         c.drawRoundRect(rect, 3f * d, 3f * d, fill);
@@ -149,24 +158,21 @@ public final class Hud {
         fill.setColor(0xFF253646);
         c.drawRect(rect, fill);
 
-        // energy cell
         rect.set(-7f * d, -136f * d, 7f * d, -76f * d);
         fill.setColor(0xFF0A2C2C);
         c.drawRoundRect(rect, 3f * d, 3f * d, fill);
         rect.set(-4.5f * d, -132f * d, 4.5f * d, -80f * d);
-        fill.setColor(TEAL);
+        fill.setColor(g.cheat ? MAGENTA : TEAL);
         c.drawRoundRect(rect, 2.5f * d, 2.5f * d, fill);
         rect.set(-1.8f * d, -128f * d, 1.8f * d, -84f * d);
         fill.setColor(0xFFEAFFFB);
         c.drawRoundRect(rect, 1f * d, 1f * d, fill);
 
-        // magenta accents
-        stroke.setColor(MAGENTA);
+        stroke.setColor(g.cheat ? AMBER : MAGENTA);
         stroke.setStrokeWidth(2f * d);
         c.drawLine(-30f * d, -58f * d, -16f * d, -70f * d, stroke);
         c.drawLine(30f * d, -58f * d, 16f * d, -70f * d, stroke);
 
-        // muzzle flash
         float muzzle = g.player.muzzle;
         if (muzzle > 0.02f) {
             int a1 = (int) (120 * muzzle);
@@ -183,7 +189,7 @@ public final class Hud {
         c.restore();
     }
 
-    private void drawStatus(Canvas c, Game g) {
+    private void drawStatus(Canvas c, Game3D g) {
         float x = 20f * d;
         float y = 28f * d;
         label(c, "INTEGRITY", x, y, 10f * d, DIM, Paint.Align.LEFT);
@@ -225,15 +231,20 @@ public final class Hud {
                 10f * d, g.coresGot >= g.coresTotal ? TEAL : DIM, Paint.Align.LEFT);
     }
 
-    private void drawPerf(Canvas c, Game g, float fps, int fbW, int fbH, int best) {
-        label(c, "SECTOR " + two(g.level), screenW * 0.5f, 30f * d, 15f * d, TEXT, Paint.Align.CENTER);
+    private void drawPerf(Canvas c, Game3D g, float fps, int fbW, int fbH, int best) {
+        label(c, "SECTOR " + two(g.levelIndex), screenW * 0.5f, 30f * d, 15f * d, TEXT, Paint.Align.CENTER);
         label(c, "SCORE " + g.score + "    BEST " + Math.max(best, g.score), screenW * 0.5f,
                 50f * d, 10f * d, DIM, Paint.Align.CENTER);
         label(c, "CPU " + fbW + "x" + fbH + "  " + Math.round(fps) + " FPS",
                 screenW * 0.5f, 66f * d, 9f * d, 0x8825E0C8, Paint.Align.CENTER);
+        if (g.cheat) {
+            float pulse = 0.6f + 0.4f * (float) Math.abs(Math.sin(g.time * 6f));
+            label(c, "OVERCLOCK // GOD MODE", screenW * 0.5f, 86f * d, 12f * d,
+                    colorWithAlpha(MAGENTA, pulse), Paint.Align.CENTER);
+        }
     }
 
-    private void drawMinimap(Canvas c, Game g) {
+    private void drawMinimap(Canvas c, Game3D g) {
         float size = Math.min(112f * d, Math.min(screenW, screenH) * 0.30f);
         int px = Math.max(32, (int) size);
         float left = screenW - 16f * d - px;
@@ -253,7 +264,7 @@ public final class Hud {
         if (mapCache != null) {
             c.drawBitmap(mapCache, left, top, null);
         }
-        float cell = px / (float) g.map.w;
+        float cell = px / (float) g.level.w;
         c.save();
         c.clipRect(left, top, left + px, top + px);
 
@@ -274,13 +285,13 @@ public final class Hud {
         }
         int exitColor = g.exitActive ? TEAL : 0xFFB26BFF;
         fill.setColor(exitColor);
-        float ex = left + (g.map.exitX + 0.5f) * cell;
-        float ey = top + (g.map.exitY + 0.5f) * cell;
+        float ex = left + (g.level.exitX + 0.5f) * cell;
+        float ey = top + (g.level.exitY + 0.5f) * cell;
         c.drawRect(ex - 3f * d, ey - 3f * d, ex + 3f * d, ey + 3f * d, fill);
 
         c.save();
         c.translate(left + g.player.x * cell, top + g.player.y * cell);
-        c.rotate((float) Math.toDegrees(g.player.angle));
+        c.rotate((float) Math.toDegrees(g.player.yaw));
         path.reset();
         path.moveTo(6f * d, 0f);
         path.lineTo(-4f * d, 3.6f * d);
@@ -292,8 +303,8 @@ public final class Hud {
         c.restore();
     }
 
-    private void ensureMapCache(Game g, int size) {
-        if (mapCache != null && cacheMap == g.map && cacheSize == size) {
+    private void ensureMapCache(Game3D g, int size) {
+        if (mapCache != null && cacheLevel == g.level && cacheSize == size) {
             return;
         }
         if (mapCache != null) {
@@ -301,26 +312,28 @@ public final class Hud {
         }
         mapCache = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
         Canvas mc = new Canvas(mapCache);
-        float cell = size / (float) g.map.w;
+        float cell = size / (float) g.level.w;
         fill.setStyle(Paint.Style.FILL);
-        for (int y = 0; y < g.map.h; y++) {
-            for (int x = 0; x < g.map.w; x++) {
+        for (int y = 0; y < g.level.h; y++) {
+            for (int x = 0; x < g.level.w; x++) {
                 float x0 = x * cell;
                 float y0 = y * cell;
-                if (g.map.solid(x, y)) {
+                if (g.level.solid(x, y)) {
                     fill.setColor(0xAA31485E);
-                    mc.drawRect(x0, y0, x0 + cell + 0.4f, y0 + cell + 0.4f, fill);
                 } else {
-                    fill.setColor(0x1A2BE0C8);
-                    mc.drawRect(x0, y0, x0 + cell + 0.4f, y0 + cell + 0.4f, fill);
+                    // higher floors glow a little brighter
+                    int height = Math.round(g.level.floorZ[y * g.level.w + x] * 4f);
+                    int alpha = 0x18 + Math.min(0x28, height * 0x0A);
+                    fill.setColor((alpha << 24) | 0x0025E0C8);
                 }
+                mc.drawRect(x0, y0, x0 + cell + 0.4f, y0 + cell + 0.4f, fill);
             }
         }
-        cacheMap = g.map;
+        cacheLevel = g.level;
         cacheSize = size;
     }
 
-    private void drawJoystick(Canvas c, Game g) {
+    private void drawJoystick(Canvas c, Game3D g) {
         fill.setStyle(Paint.Style.FILL);
         fill.setColor(0x2A101828);
         c.drawCircle(joyCx, joyCy, joyR, fill);
@@ -342,13 +355,57 @@ public final class Hud {
         stroke.setStrokeWidth(2f * d);
         stroke.setColor(0xAA7CE7FF);
         c.drawCircle(kx, ky, joyR * 0.34f, stroke);
-
         fill.setColor(0xAA7CE7FF);
         c.drawCircle(joyCx, joyCy, 2.2f * d, fill);
     }
 
-    private void drawFireButton(Canvas c, Game g) {
-        float frac = Math.max(0f, Math.min(1f, g.player.fireCooldown / Game.FIRE_INTERVAL));
+    private void drawJump(Canvas c, Game3D g) {
+        fill.setStyle(Paint.Style.FILL);
+        fill.setColor(g.player.grounded ? 0x2225E0C8 : 0x3A25E0C8);
+        c.drawCircle(jumpCx, jumpCy, jumpR, fill);
+        stroke.setStyle(Paint.Style.STROKE);
+        stroke.setStrokeWidth(2f * d);
+        stroke.setColor(0xAA25E0C8);
+        c.drawCircle(jumpCx, jumpCy, jumpR, stroke);
+        path.reset();
+        path.moveTo(jumpCx, jumpCy - 13f * d);
+        path.lineTo(jumpCx + 10f * d, jumpCy - 1f * d);
+        path.lineTo(jumpCx + 4f * d, jumpCy - 1f * d);
+        path.lineTo(jumpCx + 4f * d, jumpCy + 11f * d);
+        path.lineTo(jumpCx - 4f * d, jumpCy + 11f * d);
+        path.lineTo(jumpCx - 4f * d, jumpCy - 1f * d);
+        path.lineTo(jumpCx - 10f * d, jumpCy - 1f * d);
+        path.close();
+        fill.setColor(g.player.grounded ? 0xFFB8F7FF : 0x887CE7FF);
+        c.drawPath(path, fill);
+        label(c, "JUMP", jumpCx, jumpCy + jumpR + 12f * d, 9f * d, 0x9925E0C8, Paint.Align.CENTER);
+    }
+
+    private void drawCrouch(Canvas c, Game3D g) {
+        fill.setStyle(Paint.Style.FILL);
+        fill.setColor(g.player.crouch ? 0x44FFB020 : 0x22FFB020);
+        c.drawCircle(crouchCx, crouchCy, crouchR, fill);
+        stroke.setStyle(Paint.Style.STROKE);
+        stroke.setStrokeWidth(2f * d);
+        stroke.setColor(0xAAFFB020);
+        c.drawCircle(crouchCx, crouchCy, crouchR, stroke);
+        path.reset();
+        path.moveTo(crouchCx, crouchCy + 12f * d);
+        path.lineTo(crouchCx + 10f * d, crouchCy);
+        path.lineTo(crouchCx + 4f * d, crouchCy);
+        path.lineTo(crouchCx + 4f * d, crouchCy - 11f * d);
+        path.lineTo(crouchCx - 4f * d, crouchCy - 11f * d);
+        path.lineTo(crouchCx - 4f * d, crouchCy);
+        path.lineTo(crouchCx - 10f * d, crouchCy);
+        path.close();
+        fill.setColor(g.player.crouch ? 0xFFFFE2A8 : 0x99FFD080);
+        c.drawPath(path, fill);
+        label(c, "CROUCH", crouchCx, crouchCy + crouchR + 12f * d, 9f * d, 0x99FFB020, Paint.Align.CENTER);
+    }
+
+    private void drawFireButton(Canvas c, Game3D g) {
+        float interval = g.cheat ? Game3D.CHEAT_FIRE_INTERVAL : Game3D.FIRE_INTERVAL;
+        float frac = Math.max(0f, Math.min(1f, g.player.fireCooldown / interval));
         fill.setStyle(Paint.Style.FILL);
         fill.setColor(frac > 0f ? 0x22FF3E8A : 0x3AFF3E8A);
         c.drawCircle(fireCx, fireCy, fireR, fill);
@@ -377,7 +434,7 @@ public final class Hud {
         c.drawPath(path, fill);
     }
 
-    private void drawCrosshair(Canvas c, Game g) {
+    private void drawCrosshair(Canvas c, Game3D g) {
         float cx = screenW * 0.5f;
         float cy = screenH * 0.5f;
         float gap = (5f + g.player.recoil * 6f) * d;
@@ -390,52 +447,52 @@ public final class Hud {
         c.drawLine(cx, cy - gap - len, cx, cy - gap, stroke);
         c.drawLine(cx, cy + gap, cx, cy + gap + len, stroke);
         fill.setStyle(Paint.Style.FILL);
-        fill.setColor(MAGENTA);
+        fill.setColor(g.cheat ? MAGENTA : 0xFF25E0C8);
         c.drawCircle(cx, cy, 1.7f * d, fill);
     }
 
-    private void drawMessages(Canvas c, Game g) {
+    private void drawMessages(Canvas c, Game3D g) {
         if (g.toastTimer > 0f && g.toast.length() > 0) {
             float a = Math.min(1f, g.toastTimer / 0.7f);
-            int color = colorWithAlpha(TEAL, 0.55f + 0.45f * a);
+            int color = colorWithAlpha(g.cheat ? MAGENTA : TEAL, 0.55f + 0.45f * a);
             label(c, g.toast, screenW * 0.5f, screenH * 0.30f, 22f * d, color, Paint.Align.CENTER);
         }
         if (g.hintTimer > 0f && g.hint.length() > 0) {
             float a = Math.min(1f, g.hintTimer / 0.8f);
-            label(c, g.hint, screenW * 0.5f, 84f * d, 10f * d,
+            label(c, g.hint, screenW * 0.5f, 100f * d, 10f * d,
                     colorWithAlpha(TEAL_SOFT, 0.85f * a), Paint.Align.CENTER);
         }
     }
 
-    private void drawOverlay(Canvas c, Game g, int best) {
-        if (g.state == Game.State.DEAD) {
+    private void drawOverlay(Canvas c, Game3D g, int best) {
+        if (g.state == Game3D.State.DEAD) {
             fill.setStyle(Paint.Style.FILL);
             fill.setColor(0xD004060C);
             c.drawRect(0, 0, screenW, screenH, fill);
             label(c, "SIGNAL LOST", screenW * 0.5f, screenH * 0.44f, 30f * d, RED, Paint.Align.CENTER);
-            label(c, "SCORE " + g.score + "   SECTOR " + two(g.level),
+            label(c, "SCORE " + g.score + "   SECTOR " + two(g.levelIndex),
                     screenW * 0.5f, screenH * 0.52f, 12f * d, DIM, Paint.Align.CENTER);
             float blink = 0.45f + 0.55f * (float) Math.abs(Math.sin(g.stateTimer * 3.2f));
             label(c, "TAP TO REBOOT", screenW * 0.5f, screenH * 0.60f, 16f * d,
                     colorWithAlpha(TEAL, blink), Paint.Align.CENTER);
             label(c, "BEST " + Math.max(best, g.score), screenW * 0.5f, screenH * 0.66f,
                     10f * d, 0x6625E0C8, Paint.Align.CENTER);
-        } else if (g.state == Game.State.CLEARED) {
+        } else if (g.state == Game3D.State.CLEARED) {
             float a = Math.min(1f, g.stateTimer * 3.5f);
             int band = (int) (90 * Math.min(1f, g.stateTimer * 2f));
             fill.setColor((band << 24) | 0x00103028);
             c.drawRect(0, 0, screenW, screenH, fill);
             label(c, "SECTOR CLEAR", screenW * 0.5f, screenH * 0.45f, 28f * d,
                     colorWithAlpha(TEAL, a), Paint.Align.CENTER);
-            label(c, "+" + (400 + g.level * 50), screenW * 0.5f, screenH * 0.53f,
+            label(c, "+" + (400 + g.levelIndex * 50), screenW * 0.5f, screenH * 0.53f,
                     14f * d, colorWithAlpha(TEXT, a), Paint.Align.CENTER);
             label(c, "DESCENDING...", screenW * 0.5f, screenH * 0.60f, 10f * d,
                     colorWithAlpha(DIM, a), Paint.Align.CENTER);
-        } else if (g.level == 1 && g.time < 2.4f) {
+        } else if (g.levelIndex == 1 && g.time < 2.4f) {
             float a = Math.max(0f, Math.min(1f, (2.4f - g.time) / 0.9f));
             label(c, "CPU DUNGEON", screenW * 0.5f, screenH * 0.40f, 32f * d,
                     colorWithAlpha(TEAL, a), Paint.Align.CENTER);
-            label(c, "SOFTWARE RASTERIZER  /  ZERO GPU WORK", screenW * 0.5f,
+            label(c, "TRUE 3D  /  SOFTWARE RASTERIZER  /  ZERO GPU WORK", screenW * 0.5f,
                     screenH * 0.47f, 10f * d, colorWithAlpha(DIM, a), Paint.Align.CENTER);
         }
     }
