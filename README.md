@@ -1,6 +1,6 @@
 # CPU 地牢 · CPU Dungeon
 
-一款**全程 CPU 软件光栅化**的 Android 第一人称地牢游戏：没有 OpenGL/Vulkan 渲染管线、没有游戏引擎、没有第三方依赖、没有任何图片素材，APK 控制在 **1 MB 以内**。
+一款**全程 CPU 软件光栅化**的 Android 第一人称地牢游戏：没有 OpenGL/Vulkan 渲染管线、没有游戏引擎、没有第三方依赖、没有任何图片素材。Release APK 实测 **56.7 KB**（58,047 字节），远低于 1 MB。
 
 ![corridor](docs/screenshots/engine-corridor.png)
 ![drone](docs/screenshots/engine-drone.png)
@@ -44,6 +44,8 @@ gradle assembleRelease
 ```
 
 云端：推送到 `main` 自动编译并校验 APK < 1 MB；打 `v*` tag 自动创建 GitHub Release 并附带 APK。
+
+CI 还会执行 `apksigner verify --print-certs`，把实际签名证书打印到构建日志。
 
 ## 本地验证（无需 Android 设备）
 
