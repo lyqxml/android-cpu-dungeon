@@ -12,6 +12,7 @@ import android.view.MotionEvent;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 
+
 import com.lyq.cpudungeon.engine.Game;
 import com.lyq.cpudungeon.engine.Raycaster;
 import com.lyq.cpudungeon.ui.Hud;
@@ -31,7 +32,6 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
     private final Raycaster raycaster = new Raycaster();
     private final Hud hud = new Hud();
     private final Paint blit = new Paint();
-    private final Rect srcRect = new Rect();
     private final Rect dstRect = new Rect();
     private final SharedPreferences prefs;
     private final float density;
@@ -148,10 +148,11 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
                 best = game.score;
             }
 
-            long renderStart = System.nanoTime();
-            renderFrame();
-            long renderEnd = System.nanoTime();
-            sceneMs = sceneMs * 0.92f + (renderEnd - renderStart) / 1_000_000f * 0.08f;
+            try {
+                renderFrame();
+            } catch (Throwable t) {
+                CrashLog.write(getContext(), t);
+            }
 
             fpsFrames++;
             fpsTimer += dt;
@@ -160,7 +161,7 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
                 fpsFrames = 0;
                 fpsTimer = 0f;
             }
-            maybeAdjustResolution(renderEnd);
+            maybeAdjustResolution(System.nanoTime());
 
             long busy = System.nanoTime() - frameStart;
             long sleep = FRAME_NS - busy;
@@ -178,24 +179,27 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
     private void renderFrame() {
         int w;
         int h;
-        int[] pixels;
         Bitmap bmp;
+        long renderStart = System.nanoTime();
         synchronized (this) {
             if (fb == null || bitmap == null) {
                 return;
             }
             w = fbW;
             h = fbH;
-            pixels = fb;
             bmp = bitmap;
-            raycaster.render(game, pixels, w, h, game.time);
-            bmp.setPixels(pixels, 0, w, 0, 0, w, h);
+            raycaster.render(game, fb, w, h, game.time);
+            bmp.setPixels(fb, 0, w, 0, 0, w, h);
         }
+        long renderEnd = System.nanoTime();
+        sceneMs = sceneMs * 0.92f + (renderEnd - renderStart) / 1_000_000f * 0.08f;
+
         Canvas canvas = null;
         try {
             canvas = holder.lockCanvas();
             if (canvas != null) {
-                canvas.drawBitmap(bmp, srcRect, dstRect, blit);
+                dstRect.set(0, 0, canvas.getWidth(), canvas.getHeight());
+                canvas.drawBitmap(bmp, null, dstRect, blit);
                 hud.draw(canvas, game, fps, w, h, best);
             }
         } catch (Throwable ignored) {
@@ -301,8 +305,6 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
         fbH = h;
         fb = new int[w * h];
         bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
-        srcRect.set(0, 0, w, h);
-        dstRect.set(0, 0, viewW, viewH);
     }
 
     private void updateJoystick(float x, float y) {

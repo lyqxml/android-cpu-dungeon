@@ -1,6 +1,6 @@
 # CPU 地牢 · CPU Dungeon
 
-一款**全程 CPU 软件光栅化**的 Android 第一人称地牢游戏：没有 OpenGL/Vulkan 渲染管线、没有游戏引擎、没有第三方依赖、没有任何图片素材。Release APK 实测 **56.7 KB**（58,047 字节），远低于 1 MB。
+一款**全程 CPU 软件光栅化**的 Android 第一人称地牢游戏：没有 OpenGL/Vulkan 渲染管线、没有游戏引擎、没有第三方依赖、没有任何图片素材。Release APK 实测 **约 57 KB**，远低于 1 MB（v1.0.0 构建：58,047 字节）。
 
 ![corridor](docs/screenshots/engine-corridor.png)
 ![drone](docs/screenshots/engine-drone.png)
