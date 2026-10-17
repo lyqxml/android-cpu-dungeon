@@ -24,7 +24,7 @@ import com.lyq.cpudungeon.ui.Hud;
  * framebuffer, then the HUD is drawn with the software canvas on top.
  */
 public final class GameView extends SurfaceView implements SurfaceHolder.Callback, Runnable {
-    private static final int MIN_AUTO_HEIGHT = 360;
+    private static final int MIN_AUTO_HEIGHT = 180;
     private static final int MAX_AUTO_HEIGHT = 1440;
     private static final long FRAME_NS = 16_666_667L;
 
@@ -243,6 +243,8 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
             canvas = holder.lockCanvas();
             if (canvas != null) {
                 dstRect.set(0, 0, canvas.getWidth(), canvas.getHeight());
+                // With AA enabled, bilinear upscale keeps the smoothed edges visible.
+                blit.setFilterBitmap(settings.antiAlias);
                 canvas.drawBitmap(bmp, null, dstRect, blit);
                 hud.draw(canvas, game, fps, w, h, best, uiMode);
             }
@@ -262,14 +264,21 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
         if (settings.resolutionMode != Settings.RES_AUTO || uiMode != Hud.MODE_PLAY) {
             return;
         }
-        if (nowNs - lastAdaptNs < 1_200_000_000L) {
+        if (nowNs - lastAdaptNs < 900_000_000L) {
             return;
         }
         int next = adaptiveHeight;
-        if (sceneMs > 24f && next > MIN_AUTO_HEIGHT) {
-            next -= 120;
-        } else if (sceneMs < 12f && next < MAX_AUTO_HEIGHT) {
-            next += 120;
+        if (fps < 56f) {
+            // converge on 60 fps: aggressive first, then fine steps
+            if (fps < 30f) {
+                next = Math.max(MIN_AUTO_HEIGHT, next / 2);
+            } else if (fps < 45f) {
+                next = Math.max(MIN_AUTO_HEIGHT, next - Math.max(90, next / 4));
+            } else {
+                next = Math.max(MIN_AUTO_HEIGHT, next - 60);
+            }
+        } else if (fps > 58.5f && sceneMs < 13f && next < MAX_AUTO_HEIGHT) {
+            next += 60;
         }
         next = Math.max(MIN_AUTO_HEIGHT, Math.min(MAX_AUTO_HEIGHT, next));
         if (next != adaptiveHeight) {

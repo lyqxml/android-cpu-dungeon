@@ -26,7 +26,7 @@ public final class PostFx {
             lum[i] = (short) ((((c >> 16) & 255) * 77 + ((c >> 8) & 255) * 151 + (c & 255) * 28) >> 8);
         }
 
-        final int threshold = 30;
+        final int threshold = 22;
         for (int y = 1; y < h - 1; y++) {
             int row = y * w;
             for (int x = 1; x < w - 1; x++) {
@@ -57,9 +57,10 @@ public final class PostFx {
                 int p2 = ((d & 0xFEFEFE) + (e & 0xFEFEFE)) >> 1;
                 int avg = ((p1 & 0xFEFEFE) + (p2 & 0xFEFEFE)) >> 1;
                 int c = temp[i];
-                int r = (((c >> 16) & 255) + ((avg >> 16) & 255)) >> 1;
-                int g = (((c >> 8) & 255) + ((avg >> 8) & 255)) >> 1;
-                int bl = ((c & 255) + (avg & 255)) >> 1;
+                // stronger edge blend so the effect survives the final upscale
+                int r = (((c >> 16) & 255) * 2 + ((avg >> 16) & 255) * 3) / 5;
+                int g = (((c >> 8) & 255) * 2 + ((avg >> 8) & 255) * 3) / 5;
+                int bl = ((c & 255) * 2 + (avg & 255) * 3) / 5;
                 fb[i] = 0xFF000000 | (r << 16) | (g << 8) | bl;
             }
         }

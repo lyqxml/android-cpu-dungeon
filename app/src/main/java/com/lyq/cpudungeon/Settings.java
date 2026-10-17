@@ -9,6 +9,8 @@ public final class Settings {
     public static final int RES_1080 = 1;
     public static final int RES_1440 = 2;
     public static final int RES_AUTO = 3;
+    public static final int RES_360 = 4;
+    public static final int RES_540 = 5;
 
     public static final float DEFAULT_SENSITIVITY = 1.0f;
     public static final float MIN_SENSITIVITY = 0.4f;
@@ -53,7 +55,7 @@ public final class Settings {
         crouchRight = prefs.getFloat("crouch_right", DEFAULT_CROUCH_RIGHT);
         crouchBottom = prefs.getFloat("crouch_bottom", DEFAULT_CROUCH_BOTTOM);
         resolutionMode = prefs.getInt("resolution", RES_720);
-        if (resolutionMode < RES_720 || resolutionMode > RES_AUTO) {
+        if (resolutionMode < RES_720 || resolutionMode > RES_540) {
             resolutionMode = RES_720;
         }
         antiAlias = prefs.getBoolean("aa", false);
@@ -84,7 +86,14 @@ public final class Settings {
     }
 
     public void cycleResolution() {
-        resolutionMode = (resolutionMode + 1) % 4;
+        switch (resolutionMode) {
+            case RES_720: resolutionMode = RES_1080; break;
+            case RES_1080: resolutionMode = RES_1440; break;
+            case RES_1440: resolutionMode = RES_AUTO; break;
+            case RES_AUTO: resolutionMode = RES_360; break;
+            case RES_360: resolutionMode = RES_540; break;
+            default: resolutionMode = RES_720; break;
+        }
         save();
     }
 
@@ -101,6 +110,10 @@ public final class Settings {
                 return 1440;
             case RES_720:
                 return 720;
+            case RES_360:
+                return 360;
+            case RES_540:
+                return 540;
             default:
                 return 0;
         }
@@ -114,6 +127,10 @@ public final class Settings {
                 return "1440p 2K";
             case RES_AUTO:
                 return "ADAPTIVE";
+            case RES_360:
+                return "360p";
+            case RES_540:
+                return "540p";
             default:
                 return "720p";
         }
