@@ -2,19 +2,27 @@
 
 一款**全程 CPU 软件光栅化**的 Android 第一人称 3D 地牢游戏：没有 OpenGL/Vulkan 渲染管线、没有游戏引擎、没有第三方依赖、没有任何图片素材。Release APK 约 **60 KB**，远低于 1 MB。
 
-![corridor](docs/screenshots/v2-corridor.png)
-![stairs](docs/screenshots/v2-stairs.png)
+![720p](docs/screenshots/v3-720p.png)
+![3D drone](docs/screenshots/v3-model.png)
 
 > 以上均为引擎无头渲染输出（未叠加 HUD），由 `tools/HeadlessGame3D.java` / `tools/Scene3D.java` 直接调用游戏内同一套渲染器生成。
 
-## v2 是什么
+## v3 更新（真 3D 敌人 + 720p）
 
-v1 是光线投射伪 3D；v2 换成了**真正的软件三角形光栅化**：
+- **敌人不再是广告牌**：由长方体与梁拼出的蜘蛛无人机，6 条两段腿、旋转朝向、步态动画，全部 CPU 顶点变换
+- **真正的子弹实体**：从枪口生成，按 3D 速度飞行、分步碰撞检测，命中敌人才结算伤害，打墙/地板/天花板有火花
+- **射击音效**：启动时用代码合成 120 ms 噪声+扫频，`AudioTrack` 静态池播放，无音频文件
+- **受伤反馈**：屏幕边缘红色渐变（RadialGradient）+ 相机抖动
+- **浮动数字**：命中伤害、击杀加分、拾取核心、过关奖励，1 秒上浮淡出
+- **摇杆重做**：0.16 死区 + 指数平滑加速，轻碰不会直接拉满
+- **强制 720p**：内部分辨率固定高度 720（按屏幕比例换算宽度，如 1600×720），移除自适应降档；HUD 显示实际分辨率与实时 FPS
+
+## 渲染管线
 
 - 自由抬头/低头（±75°），真正的透视投影
 - 程序化迷宫带**高差与台阶**，可以跳跃、下蹲、爬楼
 - 墙体、地板、天花板都是真实几何，逐像素 z-buffer
-- 敌人/核心/传送门仍是广告牌（省性能），但按相机矩阵投影并参与深度测试
+- 核心/传送门/粒子仍是广告牌，敌人生成实体模型网格
 
 ## 玩法
 
@@ -44,12 +52,15 @@ v1 是光线投射伪 3D；v2 换成了**真正的软件三角形光栅化**：
 | 深度 | `float[]` z-buffer，逐像素 1/z 测试 |
 | 光照 | 逐面方向光烘焙 + 距离雾（逐三角形） |
 | 物理 | 重力、跳跃、下蹲、0.3 m 自动上台阶、平台边缘跌落 |
+| 敌人 | 手工 3D 几何（身体/头/发光眼 + 6×2 段腿），逐帧 CPU 旋转与步态 |
+| 子弹 | 3D 速度 + 0.1 m 子步碰撞 + 敌人圆柱命中 + 墙面/地面火花 |
+| 音频 | 代码合成 PCM + `AudioTrack` 静态池，无音频资源 |
 | AI | 玩家 BFS 流场 + 视线检测 + 群体分离；无人机悬浮无视高差 |
 | HUD | 软件 Canvas（血条、高度着色小地图、准星、程序化枪械、跳跃/下蹲键、设置面板、可拖动键位） |
-| 性能 | 内部 240–520 px 宽自适应；HUD 实时显示 CPU 分辨率与 FPS |
+| 性能 | 内部固定 720p 高度（宽度按屏幕比例）；HUD 实时显示 CPU 分辨率与 FPS |
 | 依赖 | 无 AndroidX、无 Kotlin、无网络、无权限、无图片素材 |
 
-实测（开发机 x86，480×270，含 AI 与精灵）：`update + render` 约 **3.1 ms/帧**。
+实测（开发机 x86，1280×720，含 AI、子弹和 3D 模型）：`update + render` 约 **18–23 ms/帧**；这正是锁定 720p 后要观察的 CPU 真实压力。
 
 ## 构建
 
@@ -66,8 +77,9 @@ gradle assembleRelease
 mkdir -p /tmp/cd3d
 javac -encoding UTF-8 -d /tmp/cd3d $(find app/src/main/java/com/lyq/cpudungeon/engine app/src/main/java/com/lyq/cpudungeon/engine3d -name '*.java') tools/Engine3DTest.java tools/HeadlessGame3D.java tools/Scene3D.java
 java -cp /tmp/cd3d Engine3DTest      # 台阶可达性 / 跳跃 / 下蹲 / 长时间模拟
-java -cp /tmp/cd3d HeadlessGame3D    # 输出 tools/out3d/*.png 视觉检查 + 性能数字
+java -cp /tmp/cd3d HeadlessGame3D    # 720p 输出 tools/out3d/*.png + 性能数字
 java -cp /tmp/cd3d Scene3D           # 定向测试房间：平台、台阶、柱子、精灵遮挡
+java -cp /tmp/cd3d ModelTest         # 单项 3D 敌人模型渲染检查
 ```
 
 ## 目录

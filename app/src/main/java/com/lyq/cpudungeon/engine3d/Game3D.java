@@ -26,6 +26,9 @@ public final class Game3D {
     public final ArrayList<Enemy> enemies = new ArrayList<>();
     public final ArrayList<Pickup> pickups = new ArrayList<>();
     public final ArrayList<Particle> particles = new ArrayList<>();
+    public final ArrayList<Bullet3D> bullets = new ArrayList<>();
+    public final ArrayList<UiEvent> uiEvents = new ArrayList<>();
+    public final Mesh3D enemyMesh = new Mesh3D();
     public final ArrayList<Billboard3D> billboards = new ArrayList<>();
     public int billboardCount;
 
@@ -44,6 +47,8 @@ public final class Game3D {
     public float toastTimer;
     public float hintTimer;
     public float vibration;
+    public float shake;
+    public int shotSeq;
     public boolean exitActive;
     public boolean cheat;
 
@@ -88,8 +93,12 @@ public final class Game3D {
         enemies.clear();
         pickups.clear();
         particles.clear();
+        bullets.clear();
+        uiEvents.clear();
         billboards.clear();
         billboardCount = 0;
+        enemyMesh.beginFrame();
+        shake = 0f;
         coresGot = 0;
         exitActive = false;
         state = State.PLAYING;
@@ -154,6 +163,7 @@ public final class Game3D {
             if (ok) {
                 Enemy e = new Enemy(ex, ey, guard * 1.3f);
                 e.z = level.floorAt(ex, ey) + 0.78f;
+                e.yaw = (float) Math.atan2(player.y - ey, player.x - ex);
                 enemies.add(e);
             }
         }
@@ -214,6 +224,7 @@ public final class Game3D {
         player.muzzle = Math.max(0f, player.muzzle - dt * 9f);
         player.landDip = Math.max(0f, player.landDip - dt * 4f);
         if (vibration > 0) vibration = Math.max(0f, vibration - dt * 4f);
+        if (shake > 0) shake = Math.max(0f, shake - dt * 3.2f);
 
         if (input.cheatTap) {
             toggleCheat();
@@ -225,6 +236,7 @@ public final class Game3D {
         if (state == State.PLAYING) {
             updatePlayer(dt);
             updateEnemies(dt);
+            updateBullets(dt);
             updatePickups();
             updateExit();
         } else if (state == State.CLEARED) {
@@ -238,6 +250,7 @@ public final class Game3D {
                 restart();
             }
         }
+        buildEnemyMesh();
         buildBillboards();
         input.clearTransient();
     }
@@ -340,64 +353,108 @@ public final class Game3D {
         player.fireCooldown = interval;
         player.recoil = 1f;
         player.muzzle = 1f;
+        shotSeq++;
+
         float cp = (float) Math.cos(player.pitch);
         float sp = (float) Math.sin(player.pitch);
-        float dirX = (float) Math.cos(player.yaw) * cp;
-        float dirY = (float) Math.sin(player.yaw) * cp;
-        float dirZ = sp;
-        float eyeX = player.x;
-        float eyeY = player.y;
-        float eyeZ = player.z + player.eyeHeight;
+        float fx = (float) Math.cos(player.yaw) * cp;
+        float fy = (float) Math.sin(player.yaw) * cp;
+        float fz = sp;
+        float rx = -(float) Math.sin(player.yaw);
+        float ry = (float) Math.cos(player.yaw);
 
-        Enemy best = null;
-        float bestT = Float.MAX_VALUE;
+        Bullet3D b = new Bullet3D();
+        b.px = b.x = player.x + fx * 0.34f + rx * 0.10f;
+        b.py = b.y = player.y + fy * 0.34f + ry * 0.10f;
+        b.pz = b.z = player.z + player.eyeHeight + fz * 0.34f - 0.09f;
+        float speed = 26f;
+        b.vx = fx * speed;
+        b.vy = fy * speed;
+        b.vz = fz * speed;
+        b.life = 2.2f;
+        if (bullets.size() >= 48) {
+            bullets.remove(0);
+        }
+        bullets.add(b);
+    }
+
+    private void updateBullets(float dt) {
+        float stepDist = 26f * dt;
+        int steps = Math.max(1, (int) Math.ceil(stepDist / 0.10f));
+        float inv = 1f / steps;
+        for (int i = bullets.size() - 1; i >= 0; i--) {
+            Bullet3D b = bullets.get(i);
+            b.life -= dt;
+            if (!b.alive || b.life <= 0f) {
+                bullets.remove(i);
+                continue;
+            }
+            for (int s = 0; s < steps && b.alive; s++) {
+                b.px = b.x;
+                b.py = b.y;
+                b.pz = b.z;
+                b.x += b.vx * dt * inv;
+                b.y += b.vy * dt * inv;
+                b.z += b.vz * dt * inv;
+
+                if (b.z >= Level3D.CEIL_Z - 0.02f
+                        || b.z <= level.floorAt(b.x, b.y) + 0.02f
+                        || level.solidAt(b.x, b.y)) {
+                    spark(b.x, b.y, b.z, 5, 0xFF9FE8FF, 1.5f);
+                    b.alive = false;
+                    break;
+                }
+                for (Enemy e : enemies) {
+                    if (e.dead) {
+                        continue;
+                    }
+                    float dx = b.x - e.x;
+                    float dy = b.y - e.y;
+                    float dz = b.z - e.z;
+                    if (dx * dx + dy * dy < 0.36f * 0.36f && Math.abs(dz) < 0.48f) {
+                        damageEnemy(e, cheat ? 3 : 1);
+                        b.alive = false;
+                        break;
+                    }
+                }
+            }
+            if (!b.alive) {
+                bullets.remove(i);
+            }
+        }
+    }
+
+    private void damageEnemy(Enemy e, int damage) {
+        e.hp -= damage;
+        e.hitFlash = 0.16f;
+        e.alert = 1f;
+        ui("-" + damage, 0xFFFF9AB0);
+        spark(e.x, e.y, e.z, 7, 0xFFFF63A8, 2.4f);
+        if (e.hp <= 0) {
+            e.dead = true;
+            kills++;
+            score += 60;
+            ui("+60", 0xFFFFD36A);
+            burst(e.x, e.y, e.z, 20, 0xFFFF3E8A);
+            vibration = Math.max(vibration, 0.25f);
+        }
+    }
+
+    private void buildEnemyMesh() {
+        enemyMesh.beginFrame();
         for (Enemy e : enemies) {
-            if (e.dead) continue;
-            float vx = e.x - eyeX;
-            float vy = e.y - eyeY;
-            float vz = e.z - eyeZ;
-            float t = vx * dirX + vy * dirY + vz * dirZ;
-            if (t < 0.2f || t > 18f) continue;
-            float px = vx - dirX * t;
-            float py = vy - dirY * t;
-            float pz = vz - dirZ * t;
-            float perp2 = px * px + py * py + pz * pz;
-            if (perp2 > 0.42f * 0.42f) continue;
-            if (!hasLineOfSight(eyeX, eyeY, eyeZ, e.x, e.y, e.z)) continue;
-            if (t < bestT) {
-                bestT = t;
-                best = e;
+            if (e.dead) {
+                continue;
             }
+            EnemyModel.build(e, level, enemyMesh, cheat);
         }
-        if (best != null) {
-            best.hp -= cheat ? 3 : 1;
-            best.hitFlash = 0.16f;
-            best.alert = 1f;
-            spark(best.x, best.y, best.z, 7, 0xFFFF63A8, 2.4f);
-            if (best.hp <= 0) {
-                best.dead = true;
-                kills++;
-                score += 60;
-                burst(best.x, best.y, best.z, 20, 0xFFFF3E8A);
-                vibration = Math.max(vibration, 0.25f);
-            }
-        } else {
-            float t = 0.5f;
-            while (t < 18f) {
-                float x = eyeX + dirX * t;
-                float y = eyeY + dirY * t;
-                float z = eyeZ + dirZ * t;
-                if (z > Level3D.CEIL_Z || z < 0f) {
-                    break;
-                }
-                if (level.solidAt(x, y) || z <= level.floorAt(x, y) + 0.02f) {
-                    break;
-                }
-                t += 0.07f;
-            }
-            spark(eyeX + dirX * t, eyeY + dirY * t, eyeZ + dirZ * t,
-                    4, 0xFF7CE7FF, 1.1f);
+    }
+
+    private void ui(String text, int color) {
+        if (uiEvents.size() > 24) {
+            uiEvents.remove(0);
         }
+        uiEvents.add(new UiEvent(text, color));
     }
 
     public boolean hasLineOfSight(float x0, float y0, float z0, float x1, float y1, float z1) {
@@ -498,6 +555,12 @@ public final class Game3D {
             e.z += (targetZ - e.z) * Math.min(1f, dt * 6f);
             e.z += (float) Math.sin(e.phase) * 0.0015f;
 
+            float targetYaw = (float) Math.atan2(player.y - e.y, player.x - e.x);
+            float diff = targetYaw - e.yaw;
+            while (diff > Math.PI) diff -= Math.PI * 2f;
+            while (diff < -Math.PI) diff += Math.PI * 2f;
+            e.yaw += diff * Math.min(1f, dt * 5f);
+
             e.attackCooldown -= dt;
             float dz = (player.z + 0.9f) - e.z;
             if (dist < 0.75f && Math.abs(dz) < 1.35f && e.attackCooldown <= 0f) {
@@ -566,6 +629,7 @@ public final class Game3D {
         if (state != State.PLAYING || cheat) return;
         player.health -= amount;
         player.damageFlash = 1f;
+        shake = 1f;
         vibration = Math.max(vibration, 0.7f);
         float dx = player.x - fromX;
         float dy = player.y - fromY;
@@ -599,6 +663,7 @@ public final class Game3D {
                 p.taken = true;
                 coresGot++;
                 score += 100;
+                ui("+100", 0xFF44FFE2);
                 player.health = Math.min(player.maxHealth, player.health + 8f);
                 spark(p.x, p.y, cz, 14, 0xFF44FFE2, 2.0f);
                 if (coresGot >= coresTotal) {
@@ -624,7 +689,9 @@ public final class Game3D {
         if (d < 0.9f && Math.abs(player.z - level.floorAt(ex, ey)) < 0.8f) {
             state = State.CLEARED;
             stateTimer = 0f;
-            score += 400 + levelIndex * 50;
+            int bonus = 400 + levelIndex * 50;
+            score += bonus;
+            ui("+" + bonus, 0xFF44FFE2);
             player.health = Math.min(player.maxHealth, player.health + 25f);
             burst(ex, ey, level.floorAt(ex, ey) + 0.9f, 30, 0xFF44FFE2);
             toast = "SECTOR CLEAR";
@@ -716,13 +783,15 @@ public final class Game3D {
                     0xFFFFFFFF, 1.1f + 0.15f * (float) Math.sin(p.spin * 2.2f), true);
             b.xray = cheat;
         }
-        for (Enemy e : enemies) {
-            if (e.dead) continue;
-            float bright = 0.9f + e.alert * 0.25f;
-            Billboard3D b = addBillboard(e.hitFlash > 0f ? Textures.DRONE_HIT : Textures.DRONE,
-                    e.x, e.y, e.z - 0.45f, 0.9f,
-                    cheat ? 0xFFFF7A9C : 0xFFFFFFFF, bright, false);
-            b.xray = cheat;
+        for (Bullet3D b : bullets) {
+            if (!b.alive) continue;
+            addBillboard(Textures.GLOW, b.x, b.y, b.z - 0.07f, 0.14f,
+                    0xFFB8F7FF, 1.25f, true);
+            float mx = (b.x + b.px) * 0.5f;
+            float my = (b.y + b.py) * 0.5f;
+            float mz = (b.z + b.pz) * 0.5f;
+            addBillboard(Textures.GLOW, mx, my, mz - 0.04f, 0.08f,
+                    0xFF66D9FF, 0.55f, true);
         }
         for (Particle p : particles) {
             float life = p.life / p.maxLife;

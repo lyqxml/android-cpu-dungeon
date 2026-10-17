@@ -4,7 +4,9 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Path;
+import android.graphics.RadialGradient;
 import android.graphics.RectF;
+import android.graphics.Shader;
 import android.graphics.Typeface;
 
 import com.lyq.cpudungeon.Settings;
@@ -12,6 +14,8 @@ import com.lyq.cpudungeon.engine.Enemy;
 import com.lyq.cpudungeon.engine.Pickup;
 import com.lyq.cpudungeon.engine3d.Game3D;
 import com.lyq.cpudungeon.engine3d.Level3D;
+
+import java.util.ArrayList;
 
 /**
  * Software-canvas HUD: health, cores, minimap (height-shaded), crosshair,
@@ -48,6 +52,21 @@ public final class Hud {
     public final RectF doneBtn = new RectF();
     public final RectF resetBtn = new RectF();
     private final RectF panel = new RectF();
+
+    private Shader damageShader;
+    private int shaderW = -1;
+    private int shaderH = -1;
+    private final ArrayList<Popup> popups = new ArrayList<>();
+
+    private static final class Popup {
+        String text;
+        int color;
+        float x;
+        float y;
+        float speed;
+        float age;
+        float life;
+    }
 
     private Bitmap mapCache;
     private Level3D cacheLevel;
@@ -147,6 +166,7 @@ public final class Hud {
         drawFireButton(c, g);
         drawCrosshair(c, g);
         drawMessages(c, g);
+        drawPopups(c);
         drawOverlay(c, g, best);
         if (mode == MODE_PLAY) {
             drawSettingsButton(c);
@@ -161,10 +181,55 @@ public final class Hud {
         if (g.player.damageFlash <= 0f) {
             return;
         }
-        int alpha = (int) Math.min(150f, 130f * g.player.damageFlash);
+        if (damageShader == null || shaderW != screenW || shaderH != screenH) {
+            float radius = Math.max(screenW, screenH) * 0.72f;
+            damageShader = new RadialGradient(screenW * 0.5f, screenH * 0.5f, radius,
+                    new int[]{0x00FF1030, 0x00FF1030, 0x55FF1030, 0xCCFF1030},
+                    new float[]{0f, 0.52f, 0.82f, 1f}, Shader.TileMode.CLAMP);
+            shaderW = screenW;
+            shaderH = screenH;
+        }
         fill.setStyle(Paint.Style.FILL);
-        fill.setColor((alpha << 24) | 0x00FF2846);
+        fill.setShader(damageShader);
+        fill.setAlpha((int) (255f * Math.min(1f, g.player.damageFlash)));
         c.drawRect(0, 0, screenW, screenH, fill);
+        fill.setShader(null);
+        fill.setAlpha(255);
+    }
+
+    public void addPopup(String text, int color) {
+        Popup p = new Popup();
+        p.text = text;
+        p.color = color;
+        p.x = screenW * 0.5f + ((float) Math.random() - 0.5f) * 90f * d;
+        p.y = screenH * 0.47f + ((float) Math.random() - 0.5f) * 26f * d;
+        p.speed = 42f * d;
+        p.life = 1.0f;
+        popups.add(p);
+        if (popups.size() > 24) {
+            popups.remove(0);
+        }
+    }
+
+    public void update(float dt) {
+        for (int i = popups.size() - 1; i >= 0; i--) {
+            Popup p = popups.get(i);
+            p.age += dt;
+            p.y -= p.speed * dt;
+            p.speed *= 0.94f;
+            if (p.age >= p.life) {
+                popups.remove(i);
+            }
+        }
+    }
+
+    private void drawPopups(Canvas c) {
+        for (Popup p : popups) {
+            float t = p.age / p.life;
+            float alpha = t < 0.65f ? 1f : 1f - (t - 0.65f) / 0.35f;
+            float size = (1f + 0.18f * (1f - Math.min(1f, t * 4f))) * 17f * d;
+            label(c, p.text, p.x, p.y, size, colorWithAlpha(p.color, alpha), Paint.Align.CENTER);
+        }
     }
 
     private void drawWeapon(Canvas c, Game3D g) {
@@ -299,8 +364,8 @@ public final class Hud {
         label(c, "SECTOR " + two(g.levelIndex), screenW * 0.5f, 30f * d, 15f * d, TEXT, Paint.Align.CENTER);
         label(c, "SCORE " + g.score + "    BEST " + Math.max(best, g.score), screenW * 0.5f,
                 50f * d, 10f * d, DIM, Paint.Align.CENTER);
-        label(c, "CPU " + fbW + "x" + fbH + "  " + Math.round(fps) + " FPS",
-                screenW * 0.5f, 66f * d, 9f * d, 0x8825E0C8, Paint.Align.CENTER);
+        label(c, "CPU " + fbW + "x" + fbH + "  " + Math.round(fps) + " FPS  [720p FIXED]",
+                screenW * 0.5f, 66f * d, 9f * d, 0x9925E0C8, Paint.Align.CENTER);
         if (g.cheat) {
             float pulse = 0.6f + 0.4f * (float) Math.abs(Math.sin(g.time * 6f));
             label(c, "OVERCLOCK // XRAY // SPRINT", screenW * 0.5f, 86f * d, 12f * d,

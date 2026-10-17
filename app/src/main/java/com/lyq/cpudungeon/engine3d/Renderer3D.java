@@ -19,6 +19,8 @@ public final class Renderer3D {
     private static final float FOG_FAR = 15.0f;
 
     private float[] zbuf = new float[0];
+    private float[] zbufXray = new float[0];
+    private boolean xrayCleared;
 
     private final float[] cx = new float[4];
     private final float[] cy = new float[4];
@@ -43,25 +45,39 @@ public final class Renderer3D {
     private final float[] sv = new float[8];
 
     public void render(Mesh3D mesh, Camera3D cam, int[] fb, int w, int h, float time) {
-        render(mesh, cam, null, fb, w, h, time);
+        renderAll(mesh, null, null, 0, cam, fb, w, h, time);
     }
 
     public void render(Mesh3D mesh, Camera3D cam, List<Billboard3D> billboards,
                        int[] fb, int w, int h, float time) {
-        render(mesh, cam, billboards, billboards == null ? 0 : billboards.size(), fb, w, h, time);
+        renderAll(mesh, null, billboards, billboards == null ? 0 : billboards.size(), cam, fb, w, h, time);
     }
 
     public void render(Mesh3D mesh, Camera3D cam, List<Billboard3D> billboards, int billboardCount,
                        int[] fb, int w, int h, float time) {
-        if (zbuf.length < w * h) {
-            zbuf = new float[w * h];
-        }
-        Arrays.fill(zbuf, 0, w * h, 0f);
-        int bg = 0xFF000000 | (FOG_R << 16) | (FOG_G << 8) | FOG_B;
-        Arrays.fill(fb, 0, w * h, bg);
+        renderAll(mesh, null, billboards, billboardCount, cam, fb, w, h, time);
+    }
 
-        for (int i = 0; i < mesh.count; i++) {
-            drawQuad(mesh.quads[i], cam, fb, w, h);
+    /** Static level geometry + optional per-frame enemy mesh + billboards. */
+    public void renderAll(Mesh3D staticMesh, Mesh3D dynamicMesh, List<Billboard3D> billboards,
+                          int billboardCount, Camera3D cam, int[] fb, int w, int h, float time) {
+        int pixels = w * h;
+        if (zbuf.length < pixels || zbufXray.length < pixels) {
+            zbuf = new float[pixels];
+            zbufXray = new float[pixels];
+        }
+        Arrays.fill(zbuf, 0, pixels, 0f);
+        xrayCleared = false;
+        int bg = 0xFF000000 | (FOG_R << 16) | (FOG_G << 8) | FOG_B;
+        Arrays.fill(fb, 0, pixels, bg);
+
+        for (int i = 0; i < staticMesh.count; i++) {
+            drawQuad(staticMesh.quads[i], cam, fb, w, h);
+        }
+        if (dynamicMesh != null) {
+            for (int i = 0; i < dynamicMesh.count; i++) {
+                drawQuad(dynamicMesh.quads[i], cam, fb, w, h);
+            }
         }
         if (billboards != null) {
             for (int i = 0; i < billboardCount; i++) {
@@ -70,7 +86,6 @@ public final class Renderer3D {
                 float dy = b.y - cam.y;
                 b.d2 = dx * dx + dy * dy;
             }
-            // painter's order: far to near (alpha blending of glows depends on it)
             for (int i = 1; i < billboardCount; i++) {
                 Billboard3D key = billboards.get(i);
                 int j = i - 1;
@@ -177,8 +192,8 @@ public final class Renderer3D {
         float a2 = y0 - y1, b2 = x1 - x0, c2 = x0 * y1 - x1 * y0;
 
         float izAvg = (z0 + z1 + z2) * (1f / 3f);
-        float depth = izAvg > 1e-6f ? 1f / izAvg : FOG_FAR;
-        float fog = 1f - (depth - FOG_NEAR) / (FOG_FAR - FOG_NEAR);
+        float camDepth = izAvg > 1e-6f ? 1f / izAvg : FOG_FAR;
+        float fog = 1f - (camDepth - FOG_NEAR) / (FOG_FAR - FOG_NEAR);
         if (fog < 0f) fog = 0f;
         if (fog > 1f) fog = 1f;
         float bright = b.brightness * (0.18f + 0.82f * fog);
@@ -246,10 +261,22 @@ public final class Renderer3D {
     }
 
     private void drawQuad(Quad3D q, Camera3D cam, int[] fb, int w, int h) {
+        float[] depth = zbuf;
+        if (q.xray) {
+            if (!xrayCleared) {
+                Arrays.fill(zbufXray, 0, w * h, 0f);
+                xrayCleared = true;
+            }
+            depth = zbufXray;
+        }
         float centerX = (q.px[0] + q.px[2]) * 0.5f - cam.x;
         float centerY = (q.py[0] + q.py[2]) * 0.5f - cam.y;
         float centerZ = (q.pz[0] + q.pz[2]) * 0.5f - cam.z;
-        if (centerX * centerX + centerY * centerY + centerZ * centerZ > 34f * 34f) {
+        if (centerX * centerX + centerY * centerY + centerZ * centerZ > 16.5f * 16.5f) {
+            return;
+        }
+        if (!q.solid && (q.nx != 0f || q.ny != 0f || q.nz != 0f)
+                && q.nx * centerX + q.ny * centerY + q.nz * centerZ >= 0f) {
             return;
         }
         for (int i = 0; i < 4; i++) {
@@ -294,7 +321,8 @@ public final class Renderer3D {
             return;
         }
         for (int i = 1; i < n - 1; i++) {
-            rasterTri(0, i, i + 1, q.tex, q.shade, fb, w, h);
+            rasterTri(0, i, i + 1, q.tex, q.solid, q.solid ? q.color : 0,
+                    q.shade, depth, fb, w, h);
         }
     }
 
@@ -326,7 +354,8 @@ public final class Renderer3D {
         return n;
     }
 
-    private void rasterTri(int ia, int ib, int ic, int texId, float shade, int[] fb, int w, int h) {
+    private void rasterTri(int ia, int ib, int ic, int texId, boolean solid, int solidColor,
+                           float shade, float[] depth, int[] fb, int w, int h) {
         float x0 = sx[ia];
         float y0 = sy[ia];
         float z0 = siz[ia];
@@ -375,8 +404,8 @@ public final class Renderer3D {
         float c2 = x0 * y1 - x1 * y0;
 
         float izAvg = (z0 + z1 + z2) * (1f / 3f);
-        float depth = izAvg > 1e-6f ? 1f / izAvg : FOG_FAR;
-        float fog = 1f - (depth - FOG_NEAR) / (FOG_FAR - FOG_NEAR);
+        float camDepth = izAvg > 1e-6f ? 1f / izAvg : FOG_FAR;
+        float fog = 1f - (camDepth - FOG_NEAR) / (FOG_FAR - FOG_NEAR);
         if (fog < 0f) fog = 0f;
         if (fog > 1f) fog = 1f;
         int light = (int) (shade * fog * 300f);
@@ -384,10 +413,23 @@ public final class Renderer3D {
         int addR = (int) ((1f - fog) * FOG_R + fog * 10f);
         int addG = (int) ((1f - fog) * FOG_G + fog * 14f);
         int addB = (int) ((1f - fog) * FOG_B + fog * 20f);
-        int mip = depth < 2.2f ? 0 : depth < 4.5f ? 1 : depth < 9f ? 2 : 3;
-        int[] tex = MipTextures.TEXTURES[texId][mip];
-        int shift = 6 - mip;
-        int size = 64 >> mip;
+        int mip = 0;
+        int[] tex = null;
+        int size = 0;
+        int solidPixel = 0;
+        if (solid) {
+            int sr = (((solidColor >> 16) & 255) * light >> 8) + addR;
+            int sg = (((solidColor >> 8) & 255) * light >> 8) + addG;
+            int sb = ((solidColor & 255) * light >> 8) + addB;
+            if (sr > 255) sr = 255;
+            if (sg > 255) sg = 255;
+            if (sb > 255) sb = 255;
+            solidPixel = 0xFF000000 | (sr << 16) | (sg << 8) | sb;
+        } else {
+            mip = camDepth < 2.2f ? 0 : camDepth < 4.5f ? 1 : camDepth < 9f ? 2 : 3;
+            tex = MipTextures.TEXTURES[texId][mip];
+            size = 64 >> mip;
+        }
 
         float w0Row = a0 * (minX + 0.5f) + b0 * (minY + 0.5f) + c0;
         float w1Row = a1 * (minX + 0.5f) + b1 * (minY + 0.5f) + c1;
@@ -402,21 +444,25 @@ public final class Renderer3D {
                 if (w0 >= 0f && w1 >= 0f && w2 >= 0f) {
                     float iz = (w0 * z0 + w1 * z1 + w2 * z2) * invArea;
                     int idx = row + x;
-                    if (iz > zbuf[idx]) {
-                        float invIz = 1f / iz;
-                        float u = (w0 * u0 + w1 * u1 + w2 * u2) * invArea * invIz;
-                        float v = (w0 * v0 + w1 * v1 + w2 * v2) * invArea * invIz;
-                        int tu = ((int) (u * 64f)) & 63;
-                        int tv = ((int) (v * 64f)) & 63;
-                        int c = tex[(tv >> mip) * size + (tu >> mip)];
-                        int r = (((c >> 16) & 255) * light >> 8) + addR;
-                        int g = (((c >> 8) & 255) * light >> 8) + addG;
-                        int b = ((c & 255) * light >> 8) + addB;
-                        if (r > 255) r = 255;
-                        if (g > 255) g = 255;
-                        if (b > 255) b = 255;
-                        fb[idx] = 0xFF000000 | (r << 16) | (g << 8) | b;
-                        zbuf[idx] = iz;
+                    if (iz > depth[idx]) {
+                        if (solid) {
+                            fb[idx] = solidPixel;
+                        } else {
+                            float invIz = 1f / iz;
+                            float u = (w0 * u0 + w1 * u1 + w2 * u2) * invArea * invIz;
+                            float v = (w0 * v0 + w1 * v1 + w2 * v2) * invArea * invIz;
+                            int tu = ((int) (u * 64f)) & 63;
+                            int tv = ((int) (v * 64f)) & 63;
+                            int c = tex[(tv >> mip) * size + (tu >> mip)];
+                            int r = (((c >> 16) & 255) * light >> 8) + addR;
+                            int g = (((c >> 8) & 255) * light >> 8) + addG;
+                            int b = ((c & 255) * light >> 8) + addB;
+                            if (r > 255) r = 255;
+                            if (g > 255) g = 255;
+                            if (b > 255) b = 255;
+                            fb[idx] = 0xFF000000 | (r << 16) | (g << 8) | b;
+                        }
+                        depth[idx] = iz;
                     }
                 }
                 w0 += a0;

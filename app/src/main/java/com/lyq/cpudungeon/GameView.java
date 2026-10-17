@@ -15,6 +15,7 @@ import android.view.SurfaceView;
 import com.lyq.cpudungeon.engine3d.Camera3D;
 import com.lyq.cpudungeon.engine3d.Game3D;
 import com.lyq.cpudungeon.engine3d.Renderer3D;
+import com.lyq.cpudungeon.engine3d.UiEvent;
 import com.lyq.cpudungeon.ui.Hud;
 
 /**
@@ -22,8 +23,7 @@ import com.lyq.cpudungeon.ui.Hud;
  * framebuffer, then the HUD is drawn with the software canvas on top.
  */
 public final class GameView extends SurfaceView implements SurfaceHolder.Callback, Runnable {
-    private static final int MIN_WIDTH = 240;
-    private static final int MAX_WIDTH = 520;
+    private static final int FIXED_HEIGHT = 720;
     private static final long FRAME_NS = 16_666_667L;
 
     private final SurfaceHolder holder;
@@ -35,6 +35,7 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
     private final Rect dstRect = new Rect();
     private final SharedPreferences prefs;
     private final Settings settings;
+    private final AudioFx audio = new AudioFx();
     private final float density;
 
     private Thread thread;
@@ -46,17 +47,19 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
     private Bitmap bitmap;
     private int fbW;
     private int fbH;
-    private int targetWidth = 400;
     private int viewW;
     private int viewH;
 
     private long lastNs;
     private float fps = 60f;
-    private float sceneMs;
     private float fpsTimer;
     private int fpsFrames;
-    private long lastAdjustNs;
     private int best;
+    private int lastShotSeq;
+    private float joyTargetX;
+    private float joyTargetY;
+    private float joySmoothX;
+    private float joySmoothY;
 
     private int joyPointer = -1;
     private int firePointer = -1;
@@ -99,6 +102,7 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
         prefs = context.getSharedPreferences("cpu_dungeon", Context.MODE_PRIVATE);
         best = prefs.getInt("best", 0);
         settings = new Settings(context);
+        audio.prewarm();
         hud.setSettings(settings);
         hud.layout(Math.max(1, getResources().getDisplayMetrics().widthPixels),
                 Math.max(1, getResources().getDisplayMetrics().heightPixels), density);
@@ -112,6 +116,7 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
     public void pauseLoop() {
         paused = true;
         settings.save();
+        audio.release();
         stopLoop();
     }
 
@@ -161,11 +166,22 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
             try {
                 if (uiMode == Hud.MODE_PLAY) {
                     applyKeyboard(dt);
+                    smoothJoystick(dt);
                     game.update(dt);
                     if (game.score > best) {
                         best = game.score;
                     }
+                    if (game.shotSeq != lastShotSeq) {
+                        lastShotSeq = game.shotSeq;
+                        audio.shot();
+                    }
+                    for (int i = 0; i < game.uiEvents.size(); i++) {
+                        UiEvent e = game.uiEvents.get(i);
+                        hud.addPopup(e.text, e.color);
+                    }
+                    game.uiEvents.clear();
                 }
+                hud.update(dt);
                 renderFrame();
             } catch (Throwable t) {
                 CrashLog.write(getContext(), t);
@@ -178,8 +194,6 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
                 fpsFrames = 0;
                 fpsTimer = 0f;
             }
-            maybeAdjustResolution(System.nanoTime());
-
             long busy = System.nanoTime() - frameStart;
             long sleep = FRAME_NS - busy;
             if (sleep > 1_000_000L) {
@@ -206,12 +220,10 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
             h = fbH;
             bmp = bitmap;
             updateCamera(w);
-            renderer.render(game.mesh, camera, game.billboards, game.billboardCount,
-                    fb, w, h, game.time);
+            renderer.renderAll(game.mesh, game.enemyMesh, game.billboards,
+                    game.billboardCount, camera, fb, w, h, game.time);
             bmp.setPixels(fb, 0, w, 0, 0, w, h);
         }
-        long renderEnd = System.nanoTime();
-        sceneMs = sceneMs * 0.92f + (renderEnd - renderStart) / 1_000_000f * 0.08f;
 
         Canvas canvas = null;
         try {
@@ -241,37 +253,33 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
         camera.z = game.player.z + game.player.eyeHeight + bob;
         camera.yaw = game.player.yaw;
         camera.pitch = game.player.pitch + game.player.recoil * 0.012f;
+        float shake = game.shake;
+        if (shake > 0.001f) {
+            camera.x += (float) Math.sin(game.time * 93f) * 0.035f * shake;
+            camera.y += (float) Math.cos(game.time * 77f) * 0.035f * shake;
+            camera.z += (float) Math.sin(game.time * 111f) * 0.020f * shake;
+            camera.pitch += (float) Math.sin(game.time * 71f) * 0.010f * shake;
+        }
         camera.update(w);
     }
 
-    private void maybeAdjustResolution(long nowNs) {
-        if (nowNs - lastAdjustNs < 1_200_000_000L) {
-            return;
-        }
-        int next = targetWidth;
-        if (sceneMs > 12f && targetWidth > MIN_WIDTH) {
-            next = targetWidth - 40;
-        } else if (sceneMs < 7f && targetWidth < MAX_WIDTH) {
-            next = targetWidth + 40;
-        }
-        if (next != targetWidth) {
-            targetWidth = next;
-            lastAdjustNs = nowNs;
-            post(new Runnable() {
-                @Override
-                public void run() {
-                    synchronized (GameView.this) {
-                        allocateFramebuffer();
-                    }
-                }
-            });
-        }
+    private void smoothJoystick(float dt) {
+        float k = 1f - (float) Math.exp(-dt * 16f);
+        joySmoothX += (joyTargetX - joySmoothX) * k;
+        joySmoothY += (joyTargetY - joySmoothY) * k;
+        if (Math.abs(joySmoothX) < 0.001f) joySmoothX = 0f;
+        if (Math.abs(joySmoothY) < 0.001f) joySmoothY = 0f;
+        game.input.moveX = joySmoothX;
+        game.input.moveY = joySmoothY;
     }
 
     private void applyKeyboard(float dt) {
         if (keyW || keyA || keyS || keyD) {
-            game.input.moveX = (keyD ? 1f : 0f) - (keyA ? 1f : 0f);
-            game.input.moveY = (keyW ? 1f : 0f) - (keyS ? 1f : 0f);
+            joyTargetX = (keyD ? 1f : 0f) - (keyA ? 1f : 0f);
+            joyTargetY = (keyW ? 1f : 0f) - (keyS ? 1f : 0f);
+        } else if (joyPointer < 0) {
+            joyTargetX = 0f;
+            joyTargetY = 0f;
         }
         float turn = ((keyTurnL ? 1f : 0f) - (keyTurnR ? 1f : 0f)) * 1.9f * dt;
         if (turn != 0f) {
@@ -321,11 +329,11 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
             viewW = getWidth();
             viewH = getHeight();
         }
-        if (viewW <= 0 || viewH <= 0) {
-            return;
+        int h = FIXED_HEIGHT;
+        int w = viewW > 0 && viewH > 0 ? Math.round(h * (viewW / (float) viewH)) : 1280;
+        if ((w & 1) == 1) {
+            w++;
         }
-        int w = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, targetWidth));
-        int h = Math.max(120, Math.round(w * (viewH / (float) viewW)));
         if (fb != null && w == fbW && h == fbH) {
             return;
         }
@@ -336,18 +344,25 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
     }
 
     private void updateJoystick(float x, float y) {
-        float dx = x - hud.joyCx;
-        float dy = y - hud.joyCy;
+        float dx = (x - hud.joyCx) / hud.joyR;
+        float dy = (y - hud.joyCy) / hud.joyR;
         float len = (float) Math.hypot(dx, dy);
-        float r = hud.joyR;
-        if (len > r) {
-            dx = dx / len * r;
-            dy = dy / len * r;
+        if (len > 1f) {
+            dx /= len;
+            dy /= len;
+            len = 1f;
         }
-        hud.knobX = dx / r;
-        hud.knobY = dy / r;
-        game.input.moveX = hud.knobX;
-        game.input.moveY = -hud.knobY;
+        hud.knobX = dx;
+        hud.knobY = dy;
+        final float deadzone = 0.16f;
+        if (len <= deadzone) {
+            joyTargetX = 0f;
+            joyTargetY = 0f;
+        } else {
+            float scaled = (len - deadzone) / (1f - deadzone);
+            joyTargetX = dx / len * scaled;
+            joyTargetY = -dy / len * scaled;
+        }
     }
 
     private void releaseTouch() {
@@ -364,6 +379,10 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
         keyTurnR = false;
         keyFire = false;
         keyCrouch = false;
+        joyTargetX = 0f;
+        joyTargetY = 0f;
+        joySmoothX = 0f;
+        joySmoothY = 0f;
         game.input.moveX = 0f;
         game.input.moveY = 0f;
         game.input.look = 0f;
@@ -575,8 +594,8 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
                 int id = e.getPointerId(idx);
                 if (id == joyPointer) {
                     joyPointer = -1;
-                    game.input.moveX = 0f;
-                    game.input.moveY = 0f;
+                    joyTargetX = 0f;
+                    joyTargetY = 0f;
                     hud.knobX = 0f;
                     hud.knobY = 0f;
                 } else if (id == firePointer) {
@@ -732,10 +751,6 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
                 break;
             default:
                 return super.onKeyUp(keyCode, event);
-        }
-        if (!keyW && !keyA && !keyS && !keyD && joyPointer < 0) {
-            game.input.moveX = 0f;
-            game.input.moveY = 0f;
         }
         return true;
     }

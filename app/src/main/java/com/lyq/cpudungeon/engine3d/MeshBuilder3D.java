@@ -48,6 +48,7 @@ public final class MeshBuilder3D {
                 cx + 1, cy + 1, z, u0 + UV_FLOOR, v0 + UV_FLOOR,
                 cx, cy + 1, z, u0, v0 + UV_FLOOR,
                 TEX_FLOOR, 1.0f);
+        q.setNormal(0f, 0f, 1f);
         mesh.add(q);
     }
 
@@ -60,6 +61,7 @@ public final class MeshBuilder3D {
                 cx + 1, cy + 1, z, u0 + UV_FLOOR, v0 + UV_FLOOR,
                 cx + 1, cy, z, u0 + UV_FLOOR, v0,
                 TEX_CEIL, 0.95f);
+        q.setNormal(0f, 0f, -1f);
         mesh.add(q);
     }
 
@@ -100,6 +102,11 @@ public final class MeshBuilder3D {
                     bx, by, otherZ, bx * UV_WALL, otherZ * UV_WALL,
                     ax, ay, otherZ, ax * UV_WALL, otherZ * UV_WALL,
                     tex, shade);
+        }
+        if (ax == bx) {
+            q.setNormal(ax == cx ? 1f : -1f, 0f, 0f);
+        } else {
+            q.setNormal(0f, ay == cy ? 1f : -1f, 0f);
         }
         mesh.add(q);
     }

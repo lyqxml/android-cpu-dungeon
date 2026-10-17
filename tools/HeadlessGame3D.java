@@ -8,8 +8,8 @@ import java.io.File;
 
 public final class HeadlessGame3D {
     public static void main(String[] args) throws Exception {
-        int w = 480;
-        int h = 270;
+        int w = 1280;
+        int h = 720;
         File out = new File("tools/out3d");
         out.mkdirs();
 
@@ -70,7 +70,7 @@ public final class HeadlessGame3D {
             cam.yaw = game.player.yaw;
             cam.pitch = game.player.pitch;
             cam.update(w);
-            renderer.render(game.mesh, cam, game.billboards, game.billboardCount, fb, w, h, game.time);
+            renderer.renderAll(game.mesh, game.enemyMesh, game.billboards, game.billboardCount, cam, fb, w, h, game.time);
         }
         long t1 = System.nanoTime();
         System.out.printf("game+render: %.2f ms/frame at %dx%d (quads=%d sprites=%d)%n",
@@ -87,7 +87,7 @@ public final class HeadlessGame3D {
         cam.yaw = game.player.yaw;
         cam.pitch = game.player.pitch;
         cam.update(w);
-        r.render(game.mesh, cam, game.billboards, game.billboardCount, fb, w, h, game.time);
+        r.renderAll(game.mesh, game.enemyMesh, game.billboards, game.billboardCount, cam, fb, w, h, game.time);
         BufferedImage img = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
         img.setRGB(0, 0, w, h, fb, 0, w);
         ImageIO.write(img, "png", new File(out, name));

@@ -10,8 +10,8 @@ android {
         applicationId "com.lyq.cpudungeon"
         minSdk 24
         targetSdk 34
-        versionCode 4
-        versionName "2.1.0"
+        versionCode 5
+        versionName "3.0.0"
     }
 
     // CI 注入正式签名；本地无环境变量时自动回退 debug 签名，保证始终能装。

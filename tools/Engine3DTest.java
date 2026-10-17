@@ -10,6 +10,7 @@ public final class Engine3DTest {
     public static void main(String[] args) {
         heightsAreWalkable();
         playerPhysics();
+        bulletsTravelAndHit();
         simulationStability();
         System.out.println("ALL 3D CHECKS PASS (" + checks + " assertions)");
     }
@@ -95,6 +96,32 @@ public final class Engine3DTest {
         for (int i = 0; i < 40; i++) game.update(1f / 60f);
         check(game.player.eyeHeight > 1.5f, "stand eye not restored");
         System.out.println("physics ok, jump peak +" + (peak - startZ));
+    }
+
+    private static void bulletsTravelAndHit() {
+        Game3D game = new Game3D(777L);
+        game.enemies.clear();
+        game.pickups.clear();
+        game.coresTotal = 9;
+        game.coresGot = 0;
+        float fx = (float) Math.cos(game.player.yaw);
+        float fy = (float) Math.sin(game.player.yaw);
+        com.lyq.cpudungeon.engine.Enemy e = new com.lyq.cpudungeon.engine.Enemy(
+                game.player.x + fx * 2.0f, game.player.y + fy * 2.0f, 0f);
+        e.z = game.level.floorAt(e.x, e.y) + 0.78f;
+        e.yaw = game.player.yaw + (float) Math.PI;
+        game.enemies.add(e);
+        float eyeZ = game.player.z + game.player.eyeHeight;
+        game.player.pitch = (float) Math.atan2(e.z - eyeZ, 2.0f);
+        game.input.fireTap = true;
+        game.update(1f / 60f);
+        check(game.bullets.size() == 1, "bullet was not spawned");
+        for (int i = 0; i < 40 && !game.bullets.isEmpty(); i++) {
+            game.update(1f / 60f);
+        }
+        check(e.hp < 3, "bullet did not damage the enemy, hp=" + e.hp);
+        check(game.bullets.isEmpty(), "bullet should be consumed on impact");
+        System.out.println("bullet ok: enemy hp=" + e.hp + " uiEvents=" + game.uiEvents.size());
     }
 
     private static void simulationStability() {
