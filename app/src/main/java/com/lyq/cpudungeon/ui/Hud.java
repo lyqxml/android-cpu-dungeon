@@ -7,6 +7,7 @@ import android.graphics.Path;
 import android.graphics.RectF;
 import android.graphics.Typeface;
 
+import com.lyq.cpudungeon.Settings;
 import com.lyq.cpudungeon.engine.Enemy;
 import com.lyq.cpudungeon.engine.Pickup;
 import com.lyq.cpudungeon.engine3d.Game3D;
@@ -17,6 +18,10 @@ import com.lyq.cpudungeon.engine3d.Level3D;
  * procedural blaster and touch controls including jump/crouch.
  */
 public final class Hud {
+    public static final int MODE_PLAY = 0;
+    public static final int MODE_SETTINGS = 1;
+    public static final int MODE_LAYOUT = 2;
+
     private static final int TEAL = 0xFF25E0C8;
     private static final int TEAL_SOFT = 0xFF8CF0E2;
     private static final int MAGENTA = 0xFFFF3E8A;
@@ -32,6 +37,17 @@ public final class Hud {
     private final Paint shadowPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Path path = new Path();
     private final RectF rect = new RectF();
+
+    private Settings settings;
+
+    public final RectF settingsRect = new RectF();
+    public final RectF sensMinus = new RectF();
+    public final RectF sensPlus = new RectF();
+    public final RectF layoutBtn = new RectF();
+    public final RectF closeBtn = new RectF();
+    public final RectF doneBtn = new RectF();
+    public final RectF resetBtn = new RectF();
+    private final RectF panel = new RectF();
 
     private Bitmap mapCache;
     private Level3D cacheLevel;
@@ -60,37 +76,85 @@ public final class Hud {
         shadowPaint.setTypeface(Typeface.create(Typeface.MONOSPACE, Typeface.BOLD));
     }
 
+    public void setSettings(Settings settings) {
+        this.settings = settings;
+    }
+
     public void layout(int w, int h, float density) {
         screenW = w;
         screenH = h;
         d = density;
+        float fr = settings != null ? settings.fireRight : Settings.DEFAULT_FIRE_RIGHT;
+        float fb = settings != null ? settings.fireBottom : Settings.DEFAULT_FIRE_BOTTOM;
+        float jr = settings != null ? settings.jumpRight : Settings.DEFAULT_JUMP_RIGHT;
+        float jb = settings != null ? settings.jumpBottom : Settings.DEFAULT_JUMP_BOTTOM;
+        float cr = settings != null ? settings.crouchRight : Settings.DEFAULT_CROUCH_RIGHT;
+        float cb = settings != null ? settings.crouchBottom : Settings.DEFAULT_CROUCH_BOTTOM;
+
         joyR = 62f * d;
         joyCx = 82f * d;
         joyCy = h - 82f * d;
         fireR = 44f * d;
-        fireCx = w - 80f * d;
-        fireCy = h - 86f * d;
+        fireCx = clamp(w - fr * d, fireR + 12f * d, w - fireR - 12f * d);
+        fireCy = clamp(h - fb * d, fireR + 12f * d, h - fireR - 12f * d);
         jumpR = 32f * d;
-        jumpCx = w - 176f * d;
-        jumpCy = h - 78f * d;
+        jumpCx = clamp(w - jr * d, jumpR + 12f * d, w - jumpR - 12f * d);
+        jumpCy = clamp(h - jb * d, jumpR + 12f * d, h - jumpR - 12f * d);
         crouchR = 29f * d;
-        crouchCx = w - 80f * d;
-        crouchCy = h - 176f * d;
+        crouchCx = clamp(w - cr * d, crouchR + 12f * d, w - crouchR - 12f * d);
+        crouchCy = clamp(h - cb * d, crouchR + 12f * d, h - crouchR - 12f * d);
+
+        settingsRect.set(20f * d, 96f * d, 82f * d, 124f * d);
+
+        float pw = Math.min(w * 0.72f, 640f * d);
+        float ph = Math.min(h * 0.74f, 300f * d);
+        float left = w * 0.5f - pw * 0.5f;
+        float top = h * 0.5f - ph * 0.5f;
+        panel.set(left, top, left + pw, top + ph);
+
+        float sensY = top + ph * 0.30f;
+        float minusCx = left + pw - 158f * d;
+        float plusCx = left + pw - 44f * d;
+        sensMinus.set(minusCx - 22f * d, sensY - 22f * d, minusCx + 22f * d, sensY + 22f * d);
+        sensPlus.set(plusCx - 22f * d, sensY - 22f * d, plusCx + 22f * d, sensY + 22f * d);
+
+        float layoutY = top + ph * 0.48f;
+        layoutBtn.set(w * 0.5f - 110f * d, layoutY - 20f * d,
+                w * 0.5f + 110f * d, layoutY + 20f * d);
+
+        float bottomY = top + ph - ph * 0.12f;
+        closeBtn.set(w * 0.5f - 76f * d, bottomY - 18f * d,
+                w * 0.5f + 76f * d, bottomY + 18f * d);
+        resetBtn.set(left + 24f * d, bottomY - 18f * d,
+                left + 148f * d, bottomY + 18f * d);
+        doneBtn.set(left + pw - 148f * d, bottomY - 18f * d,
+                left + pw - 24f * d, bottomY + 18f * d);
     }
 
-    public void draw(Canvas c, Game3D g, float fps, int fbW, int fbH, int best) {
+    private static float clamp(float v, float min, float max) {
+        return v < min ? min : (v > max ? max : v);
+    }
+
+    public void draw(Canvas c, Game3D g, float fps, int fbW, int fbH, int best, int mode) {
         drawDamageFlash(c, g);
         drawWeapon(c, g);
         drawStatus(c, g);
         drawPerf(c, g, fps, fbW, fbH, best);
         drawMinimap(c, g);
         drawJoystick(c, g);
-        drawJump(c, g);
+        drawJump(c, g, mode);
         drawCrouch(c, g);
         drawFireButton(c, g);
         drawCrosshair(c, g);
         drawMessages(c, g);
         drawOverlay(c, g, best);
+        if (mode == MODE_PLAY) {
+            drawSettingsButton(c);
+        } else if (mode == MODE_SETTINGS) {
+            drawSettingsPanel(c, g);
+        } else {
+            drawLayoutMode(c);
+        }
     }
 
     private void drawDamageFlash(Canvas c, Game3D g) {
@@ -239,7 +303,7 @@ public final class Hud {
                 screenW * 0.5f, 66f * d, 9f * d, 0x8825E0C8, Paint.Align.CENTER);
         if (g.cheat) {
             float pulse = 0.6f + 0.4f * (float) Math.abs(Math.sin(g.time * 6f));
-            label(c, "OVERCLOCK // GOD MODE", screenW * 0.5f, 86f * d, 12f * d,
+            label(c, "OVERCLOCK // XRAY // SPRINT", screenW * 0.5f, 86f * d, 12f * d,
                     colorWithAlpha(MAGENTA, pulse), Paint.Align.CENTER);
         }
     }
@@ -359,10 +423,16 @@ public final class Hud {
         c.drawCircle(joyCx, joyCy, 2.2f * d, fill);
     }
 
-    private void drawJump(Canvas c, Game3D g) {
+    private void drawJump(Canvas c, Game3D g, int mode) {
         fill.setStyle(Paint.Style.FILL);
         fill.setColor(g.player.grounded ? 0x2225E0C8 : 0x3A25E0C8);
         c.drawCircle(jumpCx, jumpCy, jumpR, fill);
+        if (mode == MODE_LAYOUT) {
+            stroke.setStyle(Paint.Style.STROKE);
+            stroke.setStrokeWidth(3f * d);
+            stroke.setColor(0xFFFFE27A);
+            c.drawCircle(jumpCx, jumpCy, jumpR + 6f * d, stroke);
+        }
         stroke.setStyle(Paint.Style.STROKE);
         stroke.setStrokeWidth(2f * d);
         stroke.setColor(0xAA25E0C8);
@@ -495,6 +565,104 @@ public final class Hud {
             label(c, "TRUE 3D  /  SOFTWARE RASTERIZER  /  ZERO GPU WORK", screenW * 0.5f,
                     screenH * 0.47f, 10f * d, colorWithAlpha(DIM, a), Paint.Align.CENTER);
         }
+    }
+
+    private void drawSettingsButton(Canvas c) {
+        fill.setStyle(Paint.Style.FILL);
+        fill.setColor(0x88070C14);
+        c.drawRoundRect(settingsRect, 6f * d, 6f * d, fill);
+        stroke.setStyle(Paint.Style.STROKE);
+        stroke.setStrokeWidth(1.2f * d);
+        stroke.setColor(0x5525E0C8);
+        c.drawRoundRect(settingsRect, 6f * d, 6f * d, stroke);
+        label(c, "SET", settingsRect.centerX(), settingsRect.centerY() + 4f * d,
+                9f * d, TEAL_SOFT, Paint.Align.CENTER);
+    }
+
+    private void drawSettingsPanel(Canvas c, Game3D g) {
+        fill.setStyle(Paint.Style.FILL);
+        fill.setColor(0xCC04060C);
+        c.drawRect(0, 0, screenW, screenH, fill);
+
+        fill.setColor(0xF0070C14);
+        c.drawRoundRect(panel, 10f * d, 10f * d, fill);
+        stroke.setStyle(Paint.Style.STROKE);
+        stroke.setStrokeWidth(1.8f * d);
+        stroke.setColor(0x8825E0C8);
+        c.drawRoundRect(panel, 10f * d, 10f * d, stroke);
+
+        label(c, "SETTINGS", panel.centerX(), panel.top + panel.height() * 0.13f,
+                18f * d, TEXT, Paint.Align.CENTER);
+        label(c, "LOOK SENSITIVITY", panel.left + 28f * d, panel.top + panel.height() * 0.30f + 5f * d,
+                10f * d, DIM, Paint.Align.LEFT);
+
+        float sens = settings != null ? settings.lookSensitivity : Settings.DEFAULT_SENSITIVITY;
+        int tenths = Math.round(sens * 10f);
+        label(c, (tenths / 10) + "." + (tenths % 10) + "x",
+                panel.left + panel.width() * 0.5f + 52f * d,
+                panel.top + panel.height() * 0.30f + 6f * d, 15f * d, TEAL, Paint.Align.CENTER);
+
+        drawRoundButton(c, sensMinus, "-");
+        drawRoundButton(c, sensPlus, "+");
+
+        fill.setColor(0x3325E0C8);
+        c.drawRoundRect(layoutBtn, 8f * d, 8f * d, fill);
+        stroke.setColor(0xAA25E0C8);
+        c.drawRoundRect(layoutBtn, 8f * d, 8f * d, stroke);
+        label(c, "CUSTOM TOUCH LAYOUT", layoutBtn.centerX(), layoutBtn.centerY() + 4f * d,
+                10f * d, TEXT, Paint.Align.CENTER);
+
+        fill.setColor(0x33FF3E8A);
+        c.drawRoundRect(closeBtn, 8f * d, 8f * d, fill);
+        stroke.setColor(0xAAFF3E8A);
+        c.drawRoundRect(closeBtn, 8f * d, 8f * d, stroke);
+        label(c, "CLOSE", closeBtn.centerX(), closeBtn.centerY() + 4f * d,
+                10f * d, TEXT, Paint.Align.CENTER);
+
+        label(c, "拖动自定义键位 · 灵敏度立即生效", panel.centerX(),
+                panel.bottom - 8f * d, 8f * d, 0x6625E0C8, Paint.Align.CENTER);
+    }
+
+    private void drawLayoutMode(Canvas c) {
+        fill.setStyle(Paint.Style.FILL);
+        fill.setColor(0x7704060C);
+        c.drawRect(0, 0, screenW, screenH, fill);
+        label(c, "DRAG BUTTONS TO REPOSITION", screenW * 0.5f, screenH * 0.16f,
+                14f * d, TEAL, Paint.Align.CENTER);
+        label(c, "FIRE / JUMP / CROUCH", screenW * 0.5f, screenH * 0.16f + 22f * d,
+                9f * d, DIM, Paint.Align.CENTER);
+
+        stroke.setStyle(Paint.Style.STROKE);
+        stroke.setStrokeWidth(3f * d);
+        stroke.setColor(0xFFFFE27A);
+        c.drawCircle(fireCx, fireCy, fireR + 6f * d, stroke);
+        c.drawCircle(jumpCx, jumpCy, jumpR + 6f * d, stroke);
+        c.drawCircle(crouchCx, crouchCy, crouchR + 6f * d, stroke);
+
+        fill.setColor(0xCC332018);
+        c.drawRoundRect(resetBtn, 8f * d, 8f * d, fill);
+        stroke.setColor(0xCCFFB020);
+        c.drawRoundRect(resetBtn, 8f * d, 8f * d, stroke);
+        label(c, "RESET", resetBtn.centerX(), resetBtn.centerY() + 4f * d,
+                10f * d, TEXT, Paint.Align.CENTER);
+
+        fill.setColor(0xCC103028);
+        c.drawRoundRect(doneBtn, 8f * d, 8f * d, fill);
+        stroke.setColor(0xCC25E0C8);
+        c.drawRoundRect(doneBtn, 8f * d, 8f * d, stroke);
+        label(c, "DONE", doneBtn.centerX(), doneBtn.centerY() + 4f * d,
+                10f * d, TEXT, Paint.Align.CENTER);
+    }
+
+    private void drawRoundButton(Canvas c, RectF r, String text) {
+        fill.setStyle(Paint.Style.FILL);
+        fill.setColor(0x3325E0C8);
+        c.drawCircle(r.centerX(), r.centerY(), r.width() * 0.5f, fill);
+        stroke.setStyle(Paint.Style.STROKE);
+        stroke.setStrokeWidth(1.6f * d);
+        stroke.setColor(0xAA25E0C8);
+        c.drawCircle(r.centerX(), r.centerY(), r.width() * 0.5f, stroke);
+        label(c, text, r.centerX(), r.centerY() + 7f * d, 20f * d, TEXT, Paint.Align.CENTER);
     }
 
     private void label(Canvas c, String value, float x, float y, float size, int color, Paint.Align align) {

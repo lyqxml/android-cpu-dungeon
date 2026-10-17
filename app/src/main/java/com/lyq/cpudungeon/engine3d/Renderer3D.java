@@ -202,7 +202,7 @@ public final class Renderer3D {
                 if (w0 >= 0f && w1 >= 0f && w2 >= 0f) {
                     float iz = (w0 * z0 + w1 * z1 + w2 * z2) * invArea;
                     int idx = row + x;
-                    if (iz > zbuf[idx]) {
+                    if (b.xray || iz > zbuf[idx]) {
                         float invIz = 1f / iz;
                         float u = (w0 * u0 + w1 * u1 + w2 * u2) * invArea * invIz;
                         float v = (w0 * v0 + w1 * v1 + w2 * v2) * invArea * invIz;
@@ -234,7 +234,9 @@ public final class Renderer3D {
                             int db = ((dst & 255) * ia2 + bl * a) / 255;
                             fb[idx] = 0xFF000000 | (dr << 16) | (dg << 8) | db;
                         }
-                        zbuf[idx] = iz;
+                        if (!b.xray) {
+                            zbuf[idx] = iz;
+                        }
                     }
                 }
                 w0 += a0; w1 += a1; w2 += a2;

@@ -12,6 +12,8 @@ public final class Billboard3D {
     public int tint = 0xFFFFFFFF;
     public float brightness = 1f;
     public boolean glow;
+    /** When true the sprite ignores the depth buffer (OVERCLOCK x-ray). */
+    public boolean xray;
     public float d2;
 
     public void set(Sprite sprite, float x, float y, float z, float height,
@@ -24,5 +26,6 @@ public final class Billboard3D {
         this.tint = tint;
         this.brightness = brightness;
         this.glow = glow;
+        this.xray = false;
     }
 }

@@ -34,6 +34,7 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
     private final Paint blit = new Paint();
     private final Rect dstRect = new Rect();
     private final SharedPreferences prefs;
+    private final Settings settings;
     private final float density;
 
     private Thread thread;
@@ -69,6 +70,11 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
 
     private int cheatTaps;
     private long cheatLastNs;
+    private int uiMode = Hud.MODE_PLAY;
+    private int dragPointer = -1;
+    private int dragButton = 0;
+    private float dragDx;
+    private float dragDy;
 
     private boolean keyW;
     private boolean keyA;
@@ -92,6 +98,8 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
         blit.setDither(false);
         prefs = context.getSharedPreferences("cpu_dungeon", Context.MODE_PRIVATE);
         best = prefs.getInt("best", 0);
+        settings = new Settings(context);
+        hud.setSettings(settings);
         hud.layout(Math.max(1, getResources().getDisplayMetrics().widthPixels),
                 Math.max(1, getResources().getDisplayMetrics().heightPixels), density);
     }
@@ -103,6 +111,7 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
 
     public void pauseLoop() {
         paused = true;
+        settings.save();
         stopLoop();
     }
 
@@ -150,10 +159,12 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
                 dt = 0.1f;
             }
             try {
-                applyKeyboard(dt);
-                game.update(dt);
-                if (game.score > best) {
-                    best = game.score;
+                if (uiMode == Hud.MODE_PLAY) {
+                    applyKeyboard(dt);
+                    game.update(dt);
+                    if (game.score > best) {
+                        best = game.score;
+                    }
                 }
                 renderFrame();
             } catch (Throwable t) {
@@ -208,7 +219,7 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
             if (canvas != null) {
                 dstRect.set(0, 0, canvas.getWidth(), canvas.getHeight());
                 canvas.drawBitmap(bmp, null, dstRect, blit);
-                hud.draw(canvas, game, fps, w, h, best);
+                hud.draw(canvas, game, fps, w, h, best, uiMode);
             }
         } catch (Throwable ignored) {
             // surface can disappear mid-frame during rotation/background
@@ -345,12 +356,132 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
         jumpPointer = -1;
         crouchPointer = -1;
         lookPointer = -1;
+        keyW = false;
+        keyA = false;
+        keyS = false;
+        keyD = false;
+        keyTurnL = false;
+        keyTurnR = false;
+        keyFire = false;
+        keyCrouch = false;
         game.input.moveX = 0f;
         game.input.moveY = 0f;
-        game.input.fireHeld = keyFire;
-        game.input.crouch = keyCrouch;
+        game.input.look = 0f;
+        game.input.pitch = 0f;
+        game.input.jumpTap = false;
+        game.input.fireHeld = false;
+        game.input.crouch = false;
         hud.knobX = 0f;
         hud.knobY = 0f;
+    }
+
+    private boolean handleSettingsTouch(MotionEvent e) {
+        if (e.getActionMasked() != MotionEvent.ACTION_DOWN) {
+            return true;
+        }
+        float x = e.getX();
+        float y = e.getY();
+        if (hud.sensMinus.contains(x, y)) {
+            settings.nudgeSensitivity(-0.1f);
+            hud.layout(viewW, viewH, density);
+        } else if (hud.sensPlus.contains(x, y)) {
+            settings.nudgeSensitivity(0.1f);
+            hud.layout(viewW, viewH, density);
+        } else if (hud.layoutBtn.contains(x, y)) {
+            uiMode = Hud.MODE_LAYOUT;
+            dragPointer = -1;
+            dragButton = 0;
+        } else if (hud.closeBtn.contains(x, y)) {
+            settings.save();
+            uiMode = Hud.MODE_PLAY;
+        }
+        return true;
+    }
+
+    private boolean handleLayoutTouch(MotionEvent e) {
+        float x = e.getX(e.getActionIndex());
+        float y = e.getY(e.getActionIndex());
+        switch (e.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+            case MotionEvent.ACTION_POINTER_DOWN: {
+                if (hud.doneBtn.contains(x, y)) {
+                    settings.save();
+                    uiMode = Hud.MODE_SETTINGS;
+                    return true;
+                }
+                if (hud.resetBtn.contains(x, y)) {
+                    settings.resetLayout();
+                    settings.save();
+                    hud.layout(viewW, viewH, density);
+                    return true;
+                }
+                int button = 0;
+                float cx = 0f;
+                float cy = 0f;
+                if (inCircle(x, y, hud.fireCx, hud.fireCy, hud.fireR)) {
+                    button = 1;
+                    cx = hud.fireCx;
+                    cy = hud.fireCy;
+                } else if (inCircle(x, y, hud.jumpCx, hud.jumpCy, hud.jumpR)) {
+                    button = 2;
+                    cx = hud.jumpCx;
+                    cy = hud.jumpCy;
+                } else if (inCircle(x, y, hud.crouchCx, hud.crouchCy, hud.crouchR)) {
+                    button = 3;
+                    cx = hud.crouchCx;
+                    cy = hud.crouchCy;
+                }
+                if (button != 0) {
+                    dragButton = button;
+                    dragPointer = e.getPointerId(e.getActionIndex());
+                    dragDx = x - cx;
+                    dragDy = y - cy;
+                }
+                break;
+            }
+            case MotionEvent.ACTION_MOVE: {
+                if (dragButton == 0 || dragPointer < 0) {
+                    break;
+                }
+                for (int i = 0; i < e.getPointerCount(); i++) {
+                    if (e.getPointerId(i) != dragPointer) {
+                        continue;
+                    }
+                    float nx = e.getX(i) - dragDx;
+                    float ny = e.getY(i) - dragDy;
+                    nx = Math.max(56f * density, Math.min(viewW - 56f * density, nx));
+                    ny = Math.max(56f * density, Math.min(viewH - 56f * density, ny));
+                    if (dragButton == 1) {
+                        settings.fireRight = (viewW - nx) / density;
+                        settings.fireBottom = (viewH - ny) / density;
+                    } else if (dragButton == 2) {
+                        settings.jumpRight = (viewW - nx) / density;
+                        settings.jumpBottom = (viewH - ny) / density;
+                    } else {
+                        settings.crouchRight = (viewW - nx) / density;
+                        settings.crouchBottom = (viewH - ny) / density;
+                    }
+                    hud.layout(viewW, viewH, density);
+                }
+                break;
+            }
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_POINTER_UP: {
+                if (e.getPointerId(e.getActionIndex()) == dragPointer) {
+                    dragPointer = -1;
+                    dragButton = 0;
+                    settings.save();
+                }
+                break;
+            }
+            case MotionEvent.ACTION_CANCEL:
+                dragPointer = -1;
+                dragButton = 0;
+                break;
+            default:
+                break;
+        }
+        return true;
     }
 
     private boolean inCircle(float x, float y, float cx, float cy, float r) {
@@ -359,6 +490,12 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
 
     @Override
     public boolean onTouchEvent(MotionEvent e) {
+        if (uiMode == Hud.MODE_SETTINGS) {
+            return handleSettingsTouch(e);
+        }
+        if (uiMode == Hud.MODE_LAYOUT) {
+            return handleLayoutTouch(e);
+        }
         float d = density;
         switch (e.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
@@ -383,6 +520,11 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
                     return true;
                 }
 
+                if (hud.settingsRect.contains(x, y)) {
+                    releaseTouch();
+                    uiMode = Hud.MODE_SETTINGS;
+                    return true;
+                }
                 if (game.state == Game3D.State.DEAD) {
                     game.input.restartTap = true;
                 }
@@ -420,8 +562,9 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
                         lookLastX = x;
                         lookLastY = y;
                         lookMoved += Math.abs(dx) + Math.abs(dy);
-                        game.input.look += dx * (3.0f / Math.max(1, viewW));
-                        game.input.pitch -= dy * (3.2f / Math.max(1, viewH));
+                        float sens = settings.lookSensitivity;
+                        game.input.look += dx * (3.0f / Math.max(1, viewW)) * sens;
+                        game.input.pitch -= dy * (3.2f / Math.max(1, viewH)) * sens;
                     }
                 }
                 break;
@@ -473,6 +616,32 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
+        if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_ESCAPE) {
+            if (uiMode == Hud.MODE_LAYOUT) {
+                settings.save();
+                uiMode = Hud.MODE_SETTINGS;
+                return true;
+            }
+            if (uiMode == Hud.MODE_SETTINGS) {
+                settings.save();
+                uiMode = Hud.MODE_PLAY;
+                return true;
+            }
+            return super.onKeyDown(keyCode, event);
+        }
+        if (keyCode == KeyEvent.KEYCODE_M) {
+            if (uiMode == Hud.MODE_PLAY) {
+                releaseTouch();
+                uiMode = Hud.MODE_SETTINGS;
+            } else {
+                settings.save();
+                uiMode = Hud.MODE_PLAY;
+            }
+            return true;
+        }
+        if (uiMode != Hud.MODE_PLAY) {
+            return true;
+        }
         switch (keyCode) {
             case KeyEvent.KEYCODE_W:
             case KeyEvent.KEYCODE_DPAD_UP:
@@ -520,6 +689,9 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
 
     @Override
     public boolean onKeyUp(int keyCode, KeyEvent event) {
+        if (uiMode != Hud.MODE_PLAY) {
+            return true;
+        }
         switch (keyCode) {
             case KeyEvent.KEYCODE_W:
             case KeyEvent.KEYCODE_DPAD_UP:

@@ -253,7 +253,7 @@ public final class Game3D {
         float targetEye = player.crouch ? Player3D.CROUCH_EYE : Player3D.STAND_EYE;
         player.eyeHeight += (targetEye - player.eyeHeight) * Math.min(1f, dt * 12f);
 
-        float speed = (player.crouch ? CROUCH_SPEED : MOVE_SPEED) * (cheat ? 1.25f : 1f);
+        float speed = (player.crouch ? CROUCH_SPEED : MOVE_SPEED) * (cheat ? 1.9f : 1f);
         float dirX = (float) Math.cos(player.yaw);
         float dirY = (float) Math.sin(player.yaw);
         float mx = clamp(input.moveX, -1f, 1f);
@@ -279,7 +279,7 @@ public final class Game3D {
 
         float ground = groundAt(player.x, player.y);
         if (input.jumpTap && player.grounded) {
-            player.vz = Player3D.JUMP_SPEED;
+            player.vz = Player3D.JUMP_SPEED * (cheat ? 1.12f : 1f);
             player.grounded = false;
         }
         player.vz -= Player3D.GRAVITY * dt;
@@ -711,15 +711,18 @@ public final class Game3D {
         for (Pickup p : pickups) {
             if (p.taken) continue;
             float bob = 0.52f + 0.05f * (float) Math.sin(p.spin * 1.7f);
-            addBillboard(Textures.CORE, p.x, p.y,
+            Billboard3D b = addBillboard(Textures.CORE, p.x, p.y,
                     level.floorAt(p.x, p.y) + bob, 0.42f,
                     0xFFFFFFFF, 1.1f + 0.15f * (float) Math.sin(p.spin * 2.2f), true);
+            b.xray = cheat;
         }
         for (Enemy e : enemies) {
             if (e.dead) continue;
             float bright = 0.9f + e.alert * 0.25f;
-            addBillboard(e.hitFlash > 0f ? Textures.DRONE_HIT : Textures.DRONE,
-                    e.x, e.y, e.z - 0.45f, 0.9f, 0xFFFFFFFF, bright, false);
+            Billboard3D b = addBillboard(e.hitFlash > 0f ? Textures.DRONE_HIT : Textures.DRONE,
+                    e.x, e.y, e.z - 0.45f, 0.9f,
+                    cheat ? 0xFFFF7A9C : 0xFFFFFFFF, bright, false);
+            b.xray = cheat;
         }
         for (Particle p : particles) {
             float life = p.life / p.maxLife;
@@ -729,7 +732,7 @@ public final class Game3D {
         }
     }
 
-    private void addBillboard(com.lyq.cpudungeon.engine.Sprite sprite, float x, float y, float z,
+    private Billboard3D addBillboard(com.lyq.cpudungeon.engine.Sprite sprite, float x, float y, float z,
                               float height, int tint, float brightness, boolean glow) {
         Billboard3D b;
         if (billboardCount < billboards.size()) {
@@ -740,6 +743,7 @@ public final class Game3D {
         }
         b.set(sprite, x, y, z, height, tint, brightness, glow);
         billboardCount++;
+        return b;
     }
 
     public void levelBfs(int[] dist) {
